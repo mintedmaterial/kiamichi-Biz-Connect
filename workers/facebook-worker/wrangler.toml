@@ -1,0 +1,31 @@
+name = "kiamichi-facebook-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-09"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kiamichi-biz-connect-db"
+database_id = "e8b7b17a-a93b-4b61-92ad-80b488266e12"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "a5a33e270e4548548d43cf0554323e57"
+
+# Workers AI binding
+[ai]
+binding = "AI"
+
+# Environment variables (place secrets via `wrangler secret put`)
+[vars]
+SITE_URL = "https://kiamichi-biz-connect.srvcflo.workers.dev"
+
+# Run daily at 2 AM UTC for enrichment
+[triggers]
+crons = ["0 2 * * *"]
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true

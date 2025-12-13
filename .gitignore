@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Wrangler
+.wrangler/
+.dev.vars
+.mf/
+
+# Build outputs
+dist/
+*.js
+*.map
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+.ADMIN_CREDENTIALS.md 
+.BLOG_GENERATION_PLAN.md
+.FACEBOOK_ENRICHMENT_IMPLEMENTATION.md
+.FACEBOOK_ENRICHMENT_PLAN.md
+.FACEBOOK_SETUP.md
+.SETUP_GUIDE.md

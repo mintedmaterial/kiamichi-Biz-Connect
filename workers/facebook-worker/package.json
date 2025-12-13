@@ -1,0 +1,12 @@
+{
+  "name": "kiamichi-facebook-worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy --config ./wrangler.toml",
+    "dev": "wrangler dev --config ./wrangler.toml"
+  },
+  "devDependencies": {
+    "wrangler": "^4.53.0"
+  }
+}

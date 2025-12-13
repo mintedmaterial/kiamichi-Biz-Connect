@@ -1,0 +1,22 @@
+{
+  "name": "kiamichi-biz-connect",
+  "version": "1.0.0",
+  "description": "Local business directory for Southeast Oklahoma, Northeast Texas, and Southwest Arkansas",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:schema:local": "wrangler d1 execute kiamichi-biz-connect-db --local --file=./schema.sql",
+    "db:schema:remote": "wrangler d1 execute kiamichi-biz-connect-db --remote --file=./schema.sql",
+    "db:seed:local": "wrangler d1 execute kiamichi-biz-connect-db --local --file=./seed.sql",
+    "db:seed:remote": "wrangler d1 execute kiamichi-biz-connect-db --remote --file=./seed.sql",
+    "tail": "wrangler tail"
+  },
+  "keywords": ["cloudflare", "workers", "business-directory"],
+  "author": "Southeast Remodeling Solutions",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251209.0",
+    "wrangler": "^4.53.0"
+  }
+}
