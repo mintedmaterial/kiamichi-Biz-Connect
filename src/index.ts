@@ -10,6 +10,15 @@ import {
   storeTokens,
   getStoredTokens
 } from './facebook-oauth';
+import {
+  handleGoogleLogin,
+  handleGoogleCallback,
+  handleLogout
+} from './auth/google';
+import {
+  handleFacebookAdminLogin,
+  handleFacebookAdminCallback
+} from './auth/facebook-admin';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -62,6 +71,29 @@ export default {
         return await handleAPI(path, request, db, env);
       }
 
+      // Google OAuth routes (admin authentication)
+      if (path === '/auth/google/login') {
+        return await handleGoogleLogin(request, env);
+      }
+
+      if (path === '/auth/google/callback') {
+        return await handleGoogleCallback(request, env, db);
+      }
+
+      // Facebook OAuth routes (admin authentication)
+      if (path === '/auth/facebook/admin/login') {
+        return await handleFacebookAdminLogin(request, env);
+      }
+
+      if (path === '/auth/facebook/admin/callback') {
+        return await handleFacebookAdminCallback(request, env, db);
+      }
+
+      // Logout (works for both Google and Facebook)
+      if (path === '/auth/logout') {
+        return await handleLogout(request, env, db);
+      }
+
       // Admin panel (protected)
       if (path.startsWith('/admin')) {
         return await handleAdminPage(request, env);
@@ -95,6 +127,21 @@ export default {
           headers: {
             'Content-Type': 'image/png',
             'Cache-Control': 'public, max-age=31536000'
+          }
+        });
+      }
+
+      // Serve blog images from R2
+      if (path.startsWith('/images/blog/')) {
+        const imageKey = path.slice(8); // Remove '/images/' prefix to get 'blog/...'
+        const object = await env.IMAGES.get(imageKey);
+        if (!object) {
+          return new Response('Image not found', { status: 404 });
+        }
+        return new Response(object.body, {
+          headers: {
+            'Content-Type': object.httpMetadata?.contentType || 'image/png',
+            'Cache-Control': 'public, max-age=2592000' // 30 days
           }
         });
       }
@@ -192,9 +239,11 @@ async function handleSearch(request: Request, db: DatabaseService, env: Env): Pr
                 <p class="text-gray-600 text-sm mb-2">${business.city}, ${business.state}</p>
                 ${business.description ? `<p class="text-gray-700 text-sm mb-3 line-clamp-2">${business.description}</p>` : ''}
                 <div class="flex items-center">
-                  <span class="text-yellow-400">⭐</span>
-                  <span class="ml-1 font-semibold">${business.google_rating.toFixed(1)}</span>
-                  <span class="ml-1 text-gray-500 text-sm">(${business.google_review_count})</span>
+                  ${business.google_rating ? `
+                    <span class="text-yellow-400">⭐</span>
+                    <span class="ml-1 font-semibold">${business.google_rating.toFixed(1)}</span>
+                    <span class="ml-1 text-gray-500 text-sm">(${business.google_review_count || 0})</span>
+                  ` : '<span class="text-gray-500 text-sm">No reviews yet</span>'}
                 </div>
               </div>
             </a>
@@ -243,9 +292,11 @@ async function handleCategoryPage(slug: string, db: DatabaseService, env: Env): 
               <p class="text-gray-600 text-sm mb-2">${business.city}, ${business.state}</p>
               ${business.description ? `<p class="text-gray-700 text-sm mb-3 line-clamp-2">${business.description}</p>` : ''}
               <div class="flex items-center">
-                <span class="text-yellow-400">⭐</span>
-                <span class="ml-1 font-semibold">${business.google_rating.toFixed(1)}</span>
-                <span class="ml-1 text-gray-500 text-sm">(${business.google_review_count})</span>
+                ${business.google_rating ? `
+                  <span class="text-yellow-400">⭐</span>
+                  <span class="ml-1 font-semibold">${business.google_rating.toFixed(1)}</span>
+                  <span class="ml-1 text-gray-500 text-sm">(${business.google_review_count || 0})</span>
+                ` : '<span class="text-gray-500 text-sm">No reviews yet</span>'}
               </div>
             </div>
           </a>
@@ -363,11 +414,13 @@ async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): 
 
         <div class="p-8">
 
+          ${business.google_rating ? `
           <div class="flex items-center mb-6">
             <span class="text-yellow-400 text-2xl">⭐</span>
             <span class="ml-2 text-2xl font-bold">${business.google_rating.toFixed(1)}</span>
-            <span class="ml-2 text-gray-500">(${business.google_review_count} reviews)</span>
+            <span class="ml-2 text-gray-500">(${business.google_review_count || 0} reviews)</span>
           </div>
+          ` : '<div class="mb-6 text-gray-500">No reviews yet</div>'}
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div>
@@ -1398,6 +1451,129 @@ async function handleAPI(path: string, request: Request, db: DatabaseService, en
     }
   }
 
+  // API: Trigger business analysis (admin only)
+  if (path === '/api/admin/analyze' && request.method === 'POST') {
+    try {
+      const data = await request.json() as any;
+
+      if (!data.businessId) {
+        return Response.json({ error: 'Missing businessId' }, { status: 400 });
+      }
+
+      // Call the analyzer worker via service binding
+      const analyzerResponse = await env.ANALYZER.fetch('https://analyzer/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessId: data.businessId,
+          mode: data.mode || 'manual',
+          adminEmail: data.adminEmail
+        })
+      });
+
+      const result = await analyzerResponse.json();
+      return Response.json(result);
+
+    } catch (error) {
+      console.error('Error triggering analysis:', error);
+      return Response.json({ error: 'Failed to trigger analysis' }, { status: 500 });
+    }
+  }
+
+  // API: Get analysis results (admin only)
+  if (path.match(/^\/api\/admin\/analysis\/\d+$/) && request.method === 'GET') {
+    try {
+      const businessId = parseInt(path.split('/')[4]);
+
+      // Call the analyzer worker to get results
+      const analyzerResponse = await env.ANALYZER.fetch(`https://analyzer/analysis/${businessId}`);
+
+      const result = await analyzerResponse.json();
+      return Response.json(result);
+
+    } catch (error) {
+      console.error('Error fetching analysis:', error);
+      return Response.json({ error: 'Failed to fetch analysis' }, { status: 500 });
+    }
+  }
+
+  // API: Get enrichment suggestions (admin only)
+  if (path.match(/^\/api\/admin\/suggestions\/\d+$/) && request.method === 'GET') {
+    try {
+      const businessId = parseInt(path.split('/')[4]);
+
+      const suggestions = await env.DB.prepare(`
+        SELECT * FROM enrichment_suggestions
+        WHERE business_id = ?
+        ORDER BY confidence DESC, created_at DESC
+      `).bind(businessId).all();
+
+      return Response.json({ suggestions: suggestions.results });
+
+    } catch (error) {
+      console.error('Error fetching suggestions:', error);
+      return Response.json({ error: 'Failed to fetch suggestions' }, { status: 500 });
+    }
+  }
+
+  // API: Approve/reject enrichment suggestion (admin only)
+  if (path.match(/^\/api\/admin\/suggestions\/\d+\/review$/) && request.method === 'POST') {
+    try {
+      const suggestionId = parseInt(path.split('/')[4]);
+      const data = await request.json() as any;
+
+      if (!data.action || !['approve', 'reject'].includes(data.action)) {
+        return Response.json({ error: 'Invalid action. Must be "approve" or "reject"' }, { status: 400 });
+      }
+
+      // Get the suggestion
+      const suggestion = await env.DB.prepare(`
+        SELECT * FROM enrichment_suggestions WHERE id = ?
+      `).bind(suggestionId).first() as any;
+
+      if (!suggestion) {
+        return Response.json({ error: 'Suggestion not found' }, { status: 404 });
+      }
+
+      if (data.action === 'approve') {
+        // Apply the suggestion to the business
+        await env.DB.prepare(`
+          UPDATE businesses
+          SET ${suggestion.field_name} = ?,
+              updated_at = unixepoch()
+          WHERE id = ?
+        `).bind(suggestion.suggested_value, suggestion.business_id).run();
+
+        // Mark as approved
+        await env.DB.prepare(`
+          UPDATE enrichment_suggestions
+          SET status = 'approved',
+              reviewed_at = unixepoch(),
+              reviewed_by = ?,
+              notes = ?
+          WHERE id = ?
+        `).bind(data.reviewedBy || 'admin', data.notes || null, suggestionId).run();
+
+      } else {
+        // Mark as rejected
+        await env.DB.prepare(`
+          UPDATE enrichment_suggestions
+          SET status = 'rejected',
+              reviewed_at = unixepoch(),
+              reviewed_by = ?,
+              notes = ?
+          WHERE id = ?
+        `).bind(data.reviewedBy || 'admin', data.notes || null, suggestionId).run();
+      }
+
+      return Response.json({ success: true, action: data.action });
+
+    } catch (error) {
+      console.error('Error reviewing suggestion:', error);
+      return Response.json({ error: 'Failed to review suggestion' }, { status: 500 });
+    }
+  }
+
   return new Response('API endpoint not found', { status: 404 });
 }
 
@@ -1406,9 +1582,17 @@ async function handleFacebookAuth(path: string, request: Request, env: Env): Pro
   const url = new URL(request.url);
 
   // Check if Facebook app credentials are configured
-  if (!env.FB_APP_ID || !env.FB_APP_SECRET) {
+  // Support both old (FB_APP_ID) and new (FACEBOOK_APP_ID) variable names
+  const fbAppId = env.FACEBOOK_APP_ID || env.FB_APP_ID;
+  const fbAppSecret = env.FACEBOOK_APP_SECRET || env.FB_APP_SECRET;
+
+  if (!fbAppId || !fbAppSecret) {
     return Response.json({ error: 'Facebook integration not configured' }, { status: 503 });
   }
+
+  // Use the correct variable names for the rest of the function
+  env.FB_APP_ID = fbAppId;
+  env.FB_APP_SECRET = fbAppSecret;
 
   // Initiate OAuth flow: /auth/facebook
   if (path === '/auth/facebook') {

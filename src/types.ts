@@ -3,13 +3,24 @@ export interface Env {
   IMAGES: R2Bucket;
   CACHE: KVNamespace;
   AI: Ai;
+  ANALYZER: Fetcher; // Service binding to analyzer worker
   SITE_NAME: string;
   SITE_URL: string;
   DEFAULT_SERVICE_AREA: string;
   ADMIN_EMAIL: string;
-  ADMIN_KEY: string;
+  ADMIN_KEY: string; // Deprecated - will be replaced by Google OAuth
   ENVIRONMENT: string;
-  // Optional Facebook integration secrets (set via wrangler secrets)
+
+  // Google OAuth for admin authentication
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  ADMIN_GOOGLE_EMAILS: string; // Comma-separated list of authorized emails
+
+  // Facebook OAuth for business integration
+  FACEBOOK_APP_ID: string;
+  FACEBOOK_APP_SECRET: string;
+
+  // Optional Facebook integration secrets (deprecated - will use OAuth tokens)
   FB_GROUP_ID?: string;
   FB_ACCESS_TOKEN?: string;
   FB_APP_ID?: string;
@@ -89,6 +100,16 @@ export interface BlogPost {
   publish_date: number | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface BlogImage {
+  id: number;
+  blog_post_id: number;
+  image_key: string;
+  image_prompt: string | null;
+  display_order: number;
+  is_approved: boolean;
+  created_at: number;
 }
 
 export interface BusinessSubmission {

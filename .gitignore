@@ -24,6 +24,7 @@ dist/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 
@@ -35,10 +36,43 @@ Thumbs.db
 coverage/
 .nyc_output/
 
-# Misc
-.ADMIN_CREDENTIALS.md 
-.BLOG_GENERATION_PLAN.md
-.FACEBOOK_ENRICHMENT_IMPLEMENTATION.md
-.FACEBOOK_ENRICHMENT_PLAN.md
-.FACEBOOK_SETUP.md
-.SETUP_GUIDE.md
+# Documentation files (exclude all except README.md and QUICK_REFERENCE.md)
+ADMIN_CREDENTIALS.md
+AI_BUSINESS_ANALYZER_PLAN.md
+ANALYZER_DEPLOYMENT.md
+BLOG_GENERATION_PLAN.md
+DEPLOYMENT.md
+DEPLOYMENT_CHECKLIST.md
+DEPLOYMENT_SUMMARY.md
+FACEBOOK_ADMIN_OAUTH_SETUP.md
+FACEBOOK_ENRICHMENT_IMPLEMENTATION.md
+FACEBOOK_ENRICHMENT_PLAN.md
+FACEBOOK_IMAGE_GUIDE.md
+FACEBOOK_SETUP.md
+FEATURES.md
+GET_FACEBOOK_APP_SECRET.md
+GOOGLE_OAUTH_CONFIG.md
+GOOGLE_OAUTH_SETUP.md
+OAUTH_IMPLEMENTATION_PLAN.md
+PROJECT_SUMMARY.md
+QUICKSTART.md
+SETUP_GUIDE.md
+
+# Data and imports
+Businessdata/
+import-businesses.sql
+import-services-charge-stations-*.sql
+seed.sql
+lead-generation-schema.sql
+migration-*.sql
+
+# Assets (can be added selectively if needed)
+screenshots/
+branding/
+
+# Secrets and credentials
+*.key
+*.pem
+*.p12
+secrets.json
+credentials.json

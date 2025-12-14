@@ -1,0 +1,54 @@
+name = "kiamichi-biz-connect"
+main = "src/index.ts"
+compatibility_date = "2024-12-09"
+compatibility_flags = ["nodejs_compat"]
+
+# Routes for production domain
+routes = ["kiamichibizconnect.com/*", "www.kiamichibizconnect.com/*"]
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "kiamichi-biz-connect-db"
+database_id = "e8b7b17a-a93b-4b61-92ad-80b488266e12"
+
+# R2 for image storage
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "kiamichi-biz-images"
+
+# KV for caching
+[[kv_namespaces]]
+binding = "CACHE"
+id = "a5a33e270e4548548d43cf0554323e57"
+
+# Workers AI for blog generation
+[ai]
+binding = "AI"
+
+# Service bindings to other workers
+[[services]]
+binding = "ANALYZER"
+service = "kiamichi-biz-ai-analyzer"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+SITE_NAME = "KiamichiBizConnect"
+SITE_URL = "https://kiamichibizconnect.com"
+DEFAULT_SERVICE_AREA = "Southeast Oklahoma, Northeast Texas, Southwest Arkansas"
+ADMIN_EMAIL = "admin@kiamichibizconnect.com"
+# ADMIN_KEY should be set using: wrangler secret put ADMIN_KEY
+GOOGLE_CLIENT_ID = "434934291611-9uo1jsbg07dnd711l4vb47kbrm2okoc0.apps.googleusercontent.com"
+FACEBOOK_APP_ID = "879824491249046"
+
+# Development environment
+[env.development]
+vars = { ENVIRONMENT = "development" }
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+persist = true

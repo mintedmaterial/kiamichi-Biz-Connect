@@ -1,64 +1,36 @@
 import { Env } from './types';
 import { DatabaseService } from './database';
+import { runBlogWorker, BlogGenerationRequest } from './workers/blogWorker';
+import { verifyAdminSession } from './auth/google';
+import { AdminSession } from './auth/types';
 
 /**
  * Admin Helper Functions
- * These functions help manage the directory without a full admin panel
+ * These functions help manage the directory using Google OAuth authentication
  */
 
-// Simple session validation - in production, use proper session management
-function validateSession(request: Request, env: Env): boolean {
+// Extract session ID from cookie
+function getSessionId(request: Request): string | null {
   const cookie = request.headers.get('Cookie');
-  if (!cookie) return false;
+  if (!cookie) return null;
 
   const sessionMatch = cookie.match(/admin_session=([^;]+)/);
-  if (!sessionMatch) return false;
-
-  // Session token is just the admin key for simplicity
-  // In production, use proper session tokens with expiration
-  return sessionMatch[1] === env.ADMIN_KEY;
+  return sessionMatch ? sessionMatch[1] : null;
 }
 
 export async function handleAdminPage(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
+  const db = new DatabaseService(env.DB);
 
-  // Handle login POST
-  if (path === '/admin/login' && request.method === 'POST') {
-    const formData = await request.formData();
-    const username = formData.get('username')?.toString();
-    const password = formData.get('password')?.toString();
+  // Check if user is authenticated with Google OAuth
+  const sessionId = getSessionId(request);
+  console.log('Admin page - Session ID from cookie:', sessionId);
+  const session = await verifyAdminSession(sessionId, db);
+  console.log('Admin page - Session verified:', session ? 'YES' : 'NO');
 
-    // Check credentials (username: admin, password: ADMIN_KEY)
-    if (username === 'admin' && password === env.ADMIN_KEY) {
-      return new Response(null, {
-        status: 302,
-        headers: {
-          'Location': '/admin',
-          'Set-Cookie': `admin_session=${env.ADMIN_KEY}; HttpOnly; Secure; SameSite=Strict; Max-Age=86400; Path=/`
-        }
-      });
-    } else {
-      return new Response(loginPageHTML('Invalid username or password'), {
-        status: 401,
-        headers: { 'Content-Type': 'text/html' }
-      });
-    }
-  }
-
-  // Handle logout
-  if (path === '/admin/logout') {
-    return new Response(null, {
-      status: 302,
-      headers: {
-        'Location': '/admin',
-        'Set-Cookie': 'admin_session=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/'
-      }
-    });
-  }
-
-  // Check if user is authenticated
-  if (!validateSession(request, env)) {
+  if (!session) {
+    // Not authenticated - show Google login page
     return new Response(loginPageHTML(), {
       headers: { 'Content-Type': 'text/html' }
     });
@@ -66,7 +38,6 @@ export async function handleAdminPage(request: Request, env: Env): Promise<Respo
 
   // User is authenticated, proceed with admin actions
   const action = url.searchParams.get('action');
-  const db = new DatabaseService(env.DB);
 
   if (action === 'pending-submissions') {
     return await getPendingSubmissions(db);
@@ -142,7 +113,7 @@ export async function handleAdminPage(request: Request, env: Env): Promise<Respo
   }
 
   if (action === 'generate-blog' && request.method === 'POST') {
-    return await generateBlogContent(request, db, env);
+    return await generateBlogWithWorker(request, db, env);
   }
 
   if (action === 'manage-blogs') {
@@ -169,6 +140,25 @@ export async function handleAdminPage(request: Request, env: Env): Promise<Respo
   if (action === 'toggle-blog-publish' && request.method === 'POST') {
     const blogId = url.searchParams.get('id');
     return await toggleBlogPublish(blogId!, db);
+  }
+
+  if (action === 'blog-images') {
+    const blogId = url.searchParams.get('id');
+    if (!blogId) return Response.json({ error: 'Missing blog ID' }, { status: 400 });
+    return await getBlogImages(blogId, db);
+  }
+
+  if (action === 'approve-blog-image' && request.method === 'POST') {
+    const blogId = url.searchParams.get('blog_id');
+    const imageId = url.searchParams.get('image_id');
+    if (!blogId || !imageId) return Response.json({ error: 'Missing IDs' }, { status: 400 });
+    return await approveBlogImage(blogId, imageId, db, env);
+  }
+
+  if (action === 'delete-blog-image' && request.method === 'POST') {
+    const imageId = url.searchParams.get('image_id');
+    if (!imageId) return Response.json({ error: 'Missing image ID' }, { status: 400 });
+    return await deleteBlogImage(imageId, db, env);
   }
 
   // Admin dashboard HTML
@@ -951,15 +941,22 @@ async function blogGeneratorPage(db: DatabaseService): Promise<Response> {
                  placeholder="e.g., 2025 Digital Marketing Trends">
         </div>
 
+        <div>
+          <label class="block text-sm font-semibold mb-2">Custom Prompt (Optional)</label>
+          <textarea id="customPrompt" rows="3" class="w-full border px-3 py-2 rounded text-sm"
+                    placeholder="Add specific guidance for the AI... e.g., 'Focus on family-owned businesses' or 'Emphasize eco-friendly practices'"></textarea>
+          <p class="text-xs text-gray-500 mt-1">Provide additional context or guidance to influence the blog content and image generation</p>
+        </div>
+
         <button onclick="generateBlog()" class="bg-purple-600 text-white px-6 py-3 rounded hover:bg-purple-700 w-full font-bold">
-          Generate Blog Post
+          🤖 Generate Blog Post with AI Images
         </button>
       </div>
     </div>
 
     <div id="generatingIndicator" class="hidden bg-blue-100 border-l-4 border-blue-500 p-4 mb-6">
-      <p class="font-semibold">Generating blog post...</p>
-      <p class="text-sm text-gray-600">This may take 30-60 seconds. Please wait.</p>
+      <p class="font-semibold">🤖 Generating blog post with AI images...</p>
+      <p class="text-sm text-gray-600">AI is writing content and generating 3 candidate images. This may take 60-90 seconds. Please wait.</p>
     </div>
 
     <div id="preview" class="hidden bg-white rounded-lg shadow p-6">
@@ -1037,11 +1034,11 @@ async function blogGeneratorPage(db: DatabaseService): Promise<Response> {
       if (type === 'business_spotlight') {
         const bizId = document.getElementById('selectedBusiness').value;
         if (!bizId) { alert('Please select a business'); return; }
-        params.business_id = bizId;
+        params.business_id = parseInt(bizId);
       } else if (type === 'category') {
         const catId = document.getElementById('selectedCategory').value;
         if (!catId) { alert('Please select a category'); return; }
-        params.category_id = catId;
+        params.category_id = parseInt(catId);
       } else if (type === 'service_area') {
         const city = document.getElementById('selectedCity').value;
         if (!city) { alert('Please select a city'); return; }
@@ -1050,6 +1047,12 @@ async function blogGeneratorPage(db: DatabaseService): Promise<Response> {
         const topic = document.getElementById('customTopic').value.trim();
         if (!topic) { alert('Please enter a topic'); return; }
         params.topic = topic;
+      }
+
+      // Include custom prompt if provided
+      const customPrompt = document.getElementById('customPrompt').value.trim();
+      if (customPrompt) {
+        params.customPrompt = customPrompt;
       }
 
       document.getElementById('generatingIndicator').classList.remove('hidden');
@@ -1066,12 +1069,19 @@ async function blogGeneratorPage(db: DatabaseService): Promise<Response> {
         const data = await resp.json();
 
         if (resp.ok) {
-          document.getElementById('blog_title').value = data.title;
-          document.getElementById('blog_slug').value = data.slug;
-          document.getElementById('blog_excerpt').value = data.excerpt || '';
-          document.getElementById('blog_content').value = data.content;
-          document.getElementById('blog_image').value = data.featured_image || '';
-          document.getElementById('preview').classList.remove('hidden');
+          // Check if blog was already saved by worker
+          if (data.blog_id) {
+            alert(data.message || 'Blog saved as draft (ID: ' + data.blog_id + '). Redirecting to Manage Blogs to approve images and publish...');
+            window.location.href = '/admin?action=manage-blogs';
+          } else {
+            // Blog not saved yet, show preview for manual save
+            document.getElementById('blog_title').value = data.title;
+            document.getElementById('blog_slug').value = data.slug;
+            document.getElementById('blog_excerpt').value = data.excerpt || '';
+            document.getElementById('blog_content').value = data.content;
+            document.getElementById('blog_image').value = data.featured_image || '';
+            document.getElementById('preview').classList.remove('hidden');
+          }
         } else {
           alert('Error generating blog: ' + (data.error || 'Unknown error'));
         }
@@ -1303,6 +1313,49 @@ Write the blog post now in markdown format:`;
   }
 }
 
+/**
+ * Generate blog content using the independent blog worker
+ * This replaces the inline generation and uses the blog worker with image generation
+ */
+async function generateBlogWithWorker(request: Request, db: DatabaseService, env: Env): Promise<Response> {
+  try {
+    const params = await request.json() as BlogGenerationRequest;
+
+    // Validate required fields based on type
+    if (!params.type) {
+      return Response.json({ error: 'Blog type is required' }, { status: 400 });
+    }
+
+    // Call the blog worker
+    const result = await runBlogWorker(env, db, params);
+
+    if (!result.success) {
+      return Response.json({
+        error: result.error || 'Failed to generate blog'
+      }, { status: 500 });
+    }
+
+    // Return the generated blog data
+    return Response.json({
+      success: true,
+      blog_id: result.blog_id,
+      title: result.title,
+      slug: result.slug,
+      excerpt: result.excerpt,
+      content: result.content,
+      featured_image: result.featured_image,
+      candidate_images: result.candidate_images
+    });
+
+  } catch (error) {
+    console.error('Error in blog worker:', error);
+    return Response.json({
+      error: 'Failed to generate blog',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
+  }
+}
+
 async function manageBlogsPage(db: DatabaseService, page: number = 1): Promise<Response> {
   const pageSize = 20;
   const offset = (page - 1) * pageSize;
@@ -1404,6 +1457,16 @@ async function manageBlogsPage(db: DatabaseService, page: number = 1): Promise<R
           <label class="block text-sm font-semibold mb-2">Featured Image URL</label>
           <input id="blog_image" class="w-full border px-3 py-2 rounded">
         </div>
+
+        <!-- Candidate Images Section -->
+        <div id="candidateImagesSection" class="hidden">
+          <label class="block text-sm font-semibold mb-2">AI-Generated Candidate Images</label>
+          <p class="text-xs text-gray-600 mb-3">Select one image to use as the featured image. Other images will be deleted.</p>
+          <div id="candidateImagesContainer" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Images will be loaded here -->
+          </div>
+        </div>
+
         <div>
           <label class="block text-sm font-semibold mb-2">Author</label>
           <input id="blog_author" class="w-full border px-3 py-2 rounded">
@@ -1446,8 +1509,78 @@ async function manageBlogsPage(db: DatabaseService, page: number = 1): Promise<R
       document.getElementById('blog_image').value = data.featured_image || '';
       document.getElementById('blog_author').value = data.author || '';
       document.getElementById('blog_published').checked = data.is_published == 1;
+
+      // Load candidate images
+      await loadCandidateImages(id);
+
       document.getElementById('editor').classList.remove('hidden');
       document.getElementById('editorTitle').textContent = 'Edit Blog #' + id;
+    }
+
+    async function loadCandidateImages(blogId) {
+      const resp = await fetch('/admin?action=blog-images&id='+blogId, { credentials: 'same-origin' });
+      if (!resp.ok) return;
+
+      const data = await resp.json();
+      const images = data.images || [];
+
+      if (images.length === 0) {
+        document.getElementById('candidateImagesSection').classList.add('hidden');
+        return;
+      }
+
+      document.getElementById('candidateImagesSection').classList.remove('hidden');
+      const container = document.getElementById('candidateImagesContainer');
+
+      container.innerHTML = images.map(img =>
+        '<div class="border rounded-lg p-3 ' + (img.is_approved ? 'border-green-500 bg-green-50' : 'border-gray-300') + '">' +
+          '<img src="/images/' + img.image_key + '" alt="Candidate ' + img.display_order + '" class="w-full h-48 object-cover rounded mb-2">' +
+          '<p class="text-xs text-gray-600 mb-2">' + (img.image_prompt || 'AI Generated') + '</p>' +
+          (!img.is_approved ?
+            '<div class="flex gap-2">' +
+              '<button type="button" onclick="approveImage(' + blogId + ', ' + img.id + ')" class="bg-green-600 text-white px-3 py-1 rounded text-sm flex-1">✓ Approve</button>' +
+              '<button type="button" onclick="deleteImage(' + img.id + ')" class="bg-red-600 text-white px-3 py-1 rounded text-sm">✗</button>' +
+            '</div>'
+          :
+            '<div class="text-green-700 font-semibold text-sm">✓ Approved</div>'
+          ) +
+        '</div>'
+      ).join('');
+    }
+
+    async function approveImage(blogId, imageId) {
+      if (!confirm('Approve this image? This will set it as the featured image and delete the other candidates.')) return;
+
+      const resp = await fetch('/admin?action=approve-blog-image&blog_id=' + blogId + '&image_id=' + imageId, {
+        method: 'POST',
+        credentials: 'same-origin'
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        document.getElementById('blog_image').value = data.featured_image;
+        await loadCandidateImages(blogId);
+        alert('Image approved and set as featured image!');
+      } else {
+        alert('Failed to approve image');
+      }
+    }
+
+    async function deleteImage(imageId) {
+      if (!confirm('Delete this image?')) return;
+
+      const resp = await fetch('/admin?action=delete-blog-image&image_id=' + imageId, {
+        method: 'POST',
+        credentials: 'same-origin'
+      });
+
+      if (resp.ok) {
+        const blogId = document.getElementById('blog_id').value;
+        await loadCandidateImages(blogId);
+        alert('Image deleted');
+      } else {
+        alert('Failed to delete image');
+      }
     }
 
     function closeEditor() {
@@ -1589,6 +1722,109 @@ async function toggleBlogPublish(id: string, db: DatabaseService): Promise<Respo
   }
 }
 
+/**
+ * Get candidate images for a blog post
+ */
+async function getBlogImages(blogId: string, db: DatabaseService): Promise<Response> {
+  try {
+    const { results } = await db.db.prepare(`
+      SELECT id, image_key, image_prompt, display_order, is_approved, created_at
+      FROM blog_images
+      WHERE blog_post_id = ?
+      ORDER BY display_order ASC
+    `).bind(Number(blogId)).all();
+
+    return Response.json({ images: results || [] });
+  } catch (err) {
+    console.error('Error fetching blog images:', err);
+    return Response.json({ error: 'Failed to fetch images' }, { status: 500 });
+  }
+}
+
+/**
+ * Approve a blog image - sets it as featured_image and deletes other candidates from R2
+ */
+async function approveBlogImage(blogId: string, imageId: string, db: DatabaseService, env: Env): Promise<Response> {
+  try {
+    // Get the approved image details
+    const approvedImage = await db.db.prepare(`
+      SELECT image_key FROM blog_images WHERE id = ?
+    `).bind(Number(imageId)).first();
+
+    if (!approvedImage) {
+      return Response.json({ error: 'Image not found' }, { status: 404 });
+    }
+
+    const imageKey = (approvedImage as any).image_key;
+    const imageUrl = `/images/${imageKey}`;
+
+    // Update blog post with featured_image
+    await db.db.prepare(`
+      UPDATE blog_posts
+      SET featured_image = ?, updated_at = unixepoch()
+      WHERE id = ?
+    `).bind(imageUrl, Number(blogId)).run();
+
+    // Mark this image as approved
+    await db.db.prepare(`
+      UPDATE blog_images SET is_approved = 1 WHERE id = ?
+    `).bind(Number(imageId)).run();
+
+    // Get all other candidate images for this blog
+    const { results: otherImages } = await db.db.prepare(`
+      SELECT id, image_key FROM blog_images
+      WHERE blog_post_id = ? AND id != ?
+    `).bind(Number(blogId), Number(imageId)).all();
+
+    // Delete other images from R2
+    for (const img of (otherImages || [])) {
+      try {
+        await env.IMAGES.delete((img as any).image_key);
+        console.log(`Deleted R2 image: ${(img as any).image_key}`);
+      } catch (deleteErr) {
+        console.error(`Failed to delete R2 image ${(img as any).image_key}:`, deleteErr);
+      }
+    }
+
+    // Delete other image records from database
+    await db.db.prepare(`
+      DELETE FROM blog_images WHERE blog_post_id = ? AND id != ?
+    `).bind(Number(blogId), Number(imageId)).run();
+
+    return Response.json({ success: true, featured_image: imageUrl });
+  } catch (err) {
+    console.error('Error approving blog image:', err);
+    return Response.json({ error: 'Failed to approve image' }, { status: 500 });
+  }
+}
+
+/**
+ * Delete a specific blog image from R2 and database
+ */
+async function deleteBlogImage(imageId: string, db: DatabaseService, env: Env): Promise<Response> {
+  try {
+    // Get image details
+    const image = await db.db.prepare(`
+      SELECT image_key FROM blog_images WHERE id = ?
+    `).bind(Number(imageId)).first();
+
+    if (!image) {
+      return Response.json({ error: 'Image not found' }, { status: 404 });
+    }
+
+    // Delete from R2
+    await env.IMAGES.delete((image as any).image_key);
+
+    // Delete from database
+    await db.db.prepare(`DELETE FROM blog_images WHERE id = ?`).bind(Number(imageId)).run();
+
+    return Response.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting blog image:', err);
+    return Response.json({ error: 'Failed to delete image' }, { status: 500 });
+  }
+}
+
 function loginPageHTML(errorMessage?: string): string {
   return `
 <!DOCTYPE html>
@@ -1610,7 +1846,7 @@ function loginPageHTML(errorMessage?: string): string {
             <div class="text-center mb-8">
                 <img src="/logo.png" alt="KiamichiBizConnect" class="h-20 w-auto mx-auto mb-4">
                 <h1 class="text-2xl font-bold text-gray-900">Admin Login</h1>
-                <p class="text-gray-600 mt-2">Sign in to manage your business directory</p>
+                <p class="text-gray-600 mt-2">Sign in with your authorized Google account</p>
             </div>
 
             ${errorMessage ? `
@@ -1619,26 +1855,77 @@ function loginPageHTML(errorMessage?: string): string {
                 </div>
             ` : ''}
 
-            <form method="POST" action="/admin/login" class="space-y-6">
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Username</label>
-                    <input type="text" name="username" required autofocus
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#ED5409] focus:border-transparent"
-                        placeholder="admin">
+            <style>
+                .oauth-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                    width: 100%;
+                    padding: 12px 24px;
+                    background: white;
+                    border: 2px solid #ddd;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    color: #444;
+                    text-decoration: none;
+                    transition: all 0.3s;
+                }
+                .oauth-btn:hover {
+                    border-color: #4285f4;
+                    box-shadow: 0 2px 8px rgba(66, 133, 244, 0.3);
+                }
+                .facebook-btn:hover {
+                    border-color: #1877f2;
+                    box-shadow: 0 2px 8px rgba(24, 119, 242, 0.3);
+                }
+                .divider {
+                    display: flex;
+                    align-items: center;
+                    text-align: center;
+                    margin: 20px 0;
+                }
+                .divider::before, .divider::after {
+                    content: '';
+                    flex: 1;
+                    border-bottom: 1px solid #ddd;
+                }
+                .divider span {
+                    padding: 0 10px;
+                    color: #999;
+                    font-size: 14px;
+                }
+            </style>
+
+            <div class="space-y-4">
+                <a href="/auth/google/login" class="oauth-btn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M19.6 10.227c0-.709-.064-1.39-.182-2.045H10v3.868h5.382a4.6 4.6 0 01-1.996 3.018v2.51h3.232c1.891-1.742 2.982-4.305 2.982-7.35z" fill="#4285F4"/>
+                        <path d="M10 20c2.7 0 4.964-.895 6.618-2.423l-3.232-2.509c-.895.6-2.04.955-3.386.955-2.605 0-4.81-1.76-5.595-4.123H1.064v2.59A9.996 9.996 0 0010 20z" fill="#34A853"/>
+                        <path d="M4.405 11.9c-.2-.6-.314-1.24-.314-1.9 0-.66.114-1.3.314-1.9V5.51H1.064A9.996 9.996 0 000 10c0 1.614.386 3.14 1.064 4.49l3.34-2.59z" fill="#FBBC05"/>
+                        <path d="M10 3.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C14.96.99 12.696 0 10 0 6.09 0 2.71 2.24 1.064 5.51l3.34 2.59C5.19 5.736 7.395 3.977 10 3.977z" fill="#EA4335"/>
+                    </svg>
+                    Sign in with Google
+                </a>
+
+                <div class="divider">
+                    <span>or</span>
                 </div>
 
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Password</label>
-                    <input type="password" name="password" required
-                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#ED5409] focus:border-transparent"
-                        placeholder="Enter your password">
-                </div>
+                <a href="/auth/facebook/admin/login" class="oauth-btn facebook-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#1877F2">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                    Sign in with Facebook
+                </a>
 
-                <button type="submit"
-                    class="w-full bg-[#ED5409] text-white font-bold py-3 px-6 rounded-lg hover:bg-[#d64808] transition-colors">
-                    Sign In
-                </button>
-            </form>
+                <div class="text-center mt-6">
+                    <p class="text-xs text-gray-500">
+                        Only authorized accounts can access the admin panel.<br>
+                        Contact your administrator if you need access.
+                    </p>
+                </div>
+            </div>
 
             <div class="mt-6 text-center text-sm text-gray-600">
                 <a href="/" class="text-[#ED5409] hover:text-[#d64808]">← Back to Homepage</a>
@@ -1664,7 +1951,7 @@ function adminDashboardHTML(): string {
     <div class="container mx-auto px-4 py-8">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold">Admin Dashboard</h1>
-            <a href="/admin/logout" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+            <a href="/auth/logout" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
                 Logout
             </a>
         </div>
@@ -1949,7 +2236,7 @@ function adminDashboardHTML(): string {
                                         \${biz.city}, \${biz.state}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        ⭐ \${biz.google_rating.toFixed(1)}
+                                        \${biz.google_rating ? '⭐ ' + biz.google_rating.toFixed(1) : 'No rating'}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full \${

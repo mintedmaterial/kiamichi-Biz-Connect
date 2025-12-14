@@ -1,0 +1,45 @@
+name = "kiamichi-biz-ai-analyzer"
+main = "src/index.ts"
+compatibility_date = "2024-12-09"
+compatibility_flags = ["nodejs_compat"]
+
+# Cron: Run 3 times per day for autonomous updates (8am, 2pm, 8pm Central)
+[triggers]
+crons = ["0 14 * * *", "0 20 * * *", "0 2 * * *"]
+
+# D1 Database (shared with main worker)
+[[d1_databases]]
+binding = "DB"
+database_name = "kiamichi-biz-connect-db"
+database_id = "e8b7b17a-a93b-4b61-92ad-80b488266e12"
+
+# Workers AI for analysis
+[ai]
+binding = "AI"
+
+# R2 for image storage (shared)
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "kiamichi-biz-images"
+
+# KV for caching (shared)
+[[kv_namespaces]]
+binding = "CACHE"
+id = "a5a33e270e4548548d43cf0554323e57"
+
+# Environment variables
+[vars]
+SITE_NAME = "KiamichiBizConnect"
+SITE_URL = "https://kiamichibizconnect.com"
+MAIN_WORKER_URL = "https://kiamichibizconnect.com"
+ANALYZER_VERSION = "1.0.0"
+# Max autonomous updates per business per day
+MAX_AUTO_UPDATES_PER_DAY = "3"
+# Minimum confidence for auto-apply (0.95 = 95%)
+AUTO_APPLY_CONFIDENCE_THRESHOLD = "0.95"
+
+[observability]
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true

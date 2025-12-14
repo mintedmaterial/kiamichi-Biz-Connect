@@ -369,9 +369,11 @@ export const homepageContent = (data: any) => `
                         ${business.description ? `<p class="text-gray-300 mb-4 line-clamp-2">${business.description}</p>` : ''}
                         <div class="flex items-center justify-between">
                             <div class="flex items-center">
-                                <span class="text-yellow-400">⭐</span>
-                                <span class="ml-1 font-semibold text-primary">${business.google_rating.toFixed(1)}</span>
-                                <span class="ml-1 text-secondary text-sm">(${business.google_review_count})</span>
+                                ${business.google_rating ? `
+                                    <span class="text-yellow-400">⭐</span>
+                                    <span class="ml-1 font-semibold text-primary">${business.google_rating.toFixed(1)}</span>
+                                    <span class="ml-1 text-secondary text-sm">(${business.google_review_count || 0})</span>
+                                ` : '<span class="text-secondary text-sm">No reviews yet</span>'}
                             </div>
                             <span class="sonic-orange font-semibold">View Details →</span>
                         </div>
