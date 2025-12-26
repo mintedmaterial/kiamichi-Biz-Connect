@@ -10,6 +10,15 @@ import {
   checkRateLimit,
 } from '../../../src/facebook-oauth';
 import { selectTopPosts, calculateVerificationScore } from '../../../src/facebook-ai-analyzer';
+import {
+  postToPageWithImage,
+  postToGroup,
+  getPostInsights,
+  getPostEngagement,
+  delayForRateLimit
+} from '../../../src/facebook-graph-api';
+import { populateContentQueue, getQueueStatus, getAnalyticsSummary } from '../../../src/facebook-scheduler';
+import type { FacebookContentQueue } from '../../../src/types';
 
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
@@ -17,6 +26,68 @@ export default {
     const path = url.pathname;
 
     try {
+      // New endpoint: Post to Facebook immediately
+      if (path === '/post') {
+        if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+
+        try {
+          const body = await request.json();
+          const { message, link, image_url, target } = body;
+
+          if (!message) {
+            return new Response(JSON.stringify({ error: 'Missing message' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          // Post to Facebook Page or Group
+          const pageId = env.FB_PAGE_ID;
+          const pageToken = env.FB_PAGE_ACCESS_TOKEN;
+          const groupId = env.FB_GROUP_ID;
+          const groupToken = env.FB_ACCESS_TOKEN;
+
+          let pagePostId: string | null = null;
+          let groupPostId: string | null = null;
+
+          // Determine target (default to both if not specified)
+          const targetType = target || 'both';
+
+          if ((targetType === 'page' || targetType === 'both') && pageId && pageToken) {
+            const pageResponse = await postToPageWithImage(pageId, pageToken, message, link, image_url);
+            if (pageResponse.error) {
+              console.error('Page post failed:', pageResponse.error);
+            } else {
+              pagePostId = pageResponse.id || null;
+            }
+          }
+
+          if ((targetType === 'group' || targetType === 'both') && groupId && groupToken) {
+            const groupResponse = await postToGroup(groupId, groupToken, message, link);
+            if (groupResponse.error) {
+              console.error('Group post failed:', groupResponse.error);
+            } else {
+              groupPostId = groupResponse.id || null;
+            }
+          }
+
+          return new Response(JSON.stringify({
+            success: true,
+            pagePostId,
+            groupPostId
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (err: any) {
+          console.error('Post error:', err);
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
       if (path === '/enrich-facebook') {
         if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
         const { business_id } = await request.json().catch(() => ({}));
@@ -61,6 +132,50 @@ export default {
         }
 
         return new Response('Method Not Allowed', { status: 405 });
+      }
+
+      // Queue status endpoint
+      if (path === '/queue/status') {
+        if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+        const queueItems = await getQueueStatus(env, 20);
+        return new Response(JSON.stringify({
+          count: queueItems.length,
+          items: queueItems
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Analytics summary endpoint
+      if (path === '/analytics/summary') {
+        if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+        const summary = await getAnalyticsSummary(env);
+        return new Response(JSON.stringify({
+          period: 'last_30_days',
+          summary
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      // Schedule preview endpoint
+      if (path === '/schedule/preview') {
+        if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+        const db = env.DB;
+        const schedules = await db.prepare(`
+          SELECT * FROM facebook_posting_schedule
+          WHERE is_active = 1
+          ORDER BY hour_utc, minute
+        `).all();
+
+        return new Response(JSON.stringify({
+          schedules: schedules.results
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
       }
 
       // Data deletion callback required by Facebook App Review
@@ -130,19 +245,40 @@ export default {
       console.error('Worker error', err);
       return new Response(JSON.stringify({ error: err?.message || 'Unknown error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
+  },
+
+  // Scheduled handler — called by Cloudflare on cron (every hour)
+  async scheduled(controller: any, env: any) {
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const currentHour = new Date().getUTCHours();
+
+      console.log(`Scheduled run starting at ${new Date().toISOString()}`);
+
+      // Every hour:
+      // 1. Populate queue for next 24 hours
+      const queueResult = await populateContentQueue(env);
+      console.log(`Queue population: ${queueResult.created} created, ${queueResult.skipped} skipped`);
+
+      // 2. Process posts due now (±5 minute window)
+      const postingResult = await processPendingPosts(env, now);
+      console.log(`Posted: ${postingResult.posted} successful, ${postingResult.failed} failed`);
+
+      // At 2 AM UTC only:
+      // 3. Fetch analytics for recent posts
+      // 4. Run business enrichment
+      if (currentHour === 2) {
+        console.log('Running 2 AM tasks: analytics update and business enrichment');
+        await updatePostAnalytics(env);
+        await enrichAllBusinesses(env);
+      }
+
+      console.log('Scheduled run completed successfully');
+    } catch (err) {
+      console.error('Scheduled run failed', err);
+    }
   }
 };
-
-// Scheduled handler — called by Cloudflare on cron
-export async function scheduled(controller: any, env: any) {
-  try {
-    // Run both group posting and enrichment
-    await runOnce(env, { test: false });
-    await enrichAllBusinesses(env);
-  } catch (err) {
-    console.error('Scheduled run failed', err);
-  }
-}
 
 async function runOnce(env: any, opts: { test?: boolean } = {}) {
   const groupId = env.FB_GROUP_ID || (await getSecretPlaceholder('FB_GROUP_ID'));
@@ -193,6 +329,264 @@ async function runOnce(env: any, opts: { test?: boolean } = {}) {
 // secrets will be injected into `env`; this function is only a helpful message for local runs.
 async function getSecretPlaceholder(name: string) {
   return undefined;
+}
+
+/**
+ * Process pending posts scheduled for now (±5 minute window)
+ */
+async function processPendingPosts(
+  env: any,
+  now: number
+): Promise<{ posted: number; failed: number }> {
+  const db = env.DB;
+  const pageId = env.FB_PAGE_ID;
+  const pageToken = env.FB_PAGE_ACCESS_TOKEN;
+  const groupId = env.FB_GROUP_ID;
+  const groupToken = env.FB_ACCESS_TOKEN;
+
+  let posted = 0;
+  let failed = 0;
+
+  try {
+    // Get posts scheduled within ±5 minute window
+    const windowStart = now - 300; // 5 minutes ago
+    const windowEnd = now + 300; // 5 minutes from now
+
+    const pendingPosts = await db
+      .prepare(`
+        SELECT * FROM facebook_content_queue
+        WHERE status = 'pending'
+        AND scheduled_for >= ?
+        AND scheduled_for <= ?
+        ORDER BY priority DESC, scheduled_for ASC
+      `)
+      .bind(windowStart, windowEnd)
+      .all();
+
+    for (const post of pendingPosts.results as FacebookContentQueue[]) {
+      try {
+        let pagePostId: string | null = null;
+        let groupPostId: string | null = null;
+
+        // Post to Page if needed
+        if ((post.target_type === 'page' || post.target_type === 'both') && pageId && pageToken) {
+          const pageResponse = await postToPageWithImage(
+            pageId,
+            pageToken,
+            post.message,
+            post.link || undefined,
+            post.image_url || undefined
+          );
+
+          if (pageResponse.error) {
+            throw new Error(`Page post failed: ${pageResponse.error.message}`);
+          }
+
+          pagePostId = pageResponse.id || null;
+          console.log(`Posted to Page: ${pagePostId}`);
+        }
+
+        // Rate limit between posts
+        await delayForRateLimit();
+
+        // Post to Group if needed
+        if ((post.target_type === 'group' || post.target_type === 'both') && groupId && groupToken) {
+          const groupResponse = await postToGroup(
+            groupId,
+            groupToken,
+            post.message,
+            post.link || undefined
+          );
+
+          if (groupResponse.error) {
+            throw new Error(`Group post failed: ${groupResponse.error.message}`);
+          }
+
+          groupPostId = groupResponse.id || null;
+          console.log(`Posted to Group: ${groupPostId}`);
+        }
+
+        // Update queue status to posted
+        await db
+          .prepare(`
+            UPDATE facebook_content_queue
+            SET status = 'posted',
+                posted_at = ?,
+                page_post_id = ?,
+                group_post_id = ?
+            WHERE id = ?
+          `)
+          .bind(now, pagePostId, groupPostId, post.id)
+          .run();
+
+        // Track in posted_content table for deduplication
+        if (post.business_id) {
+          await db
+            .prepare(`
+              INSERT INTO facebook_posted_content
+              (content_type, content_id, target_type, queue_id)
+              VALUES ('business_spotlight', ?, ?, ?)
+            `)
+            .bind(post.business_id, post.target_type, post.id)
+            .run();
+        } else if (post.blog_post_id) {
+          await db
+            .prepare(`
+              INSERT INTO facebook_posted_content
+              (content_type, content_id, target_type, queue_id)
+              VALUES ('blog_share', ?, ?, ?)
+            `)
+            .bind(post.blog_post_id, post.target_type, post.id)
+            .run();
+        } else if (post.category_id) {
+          await db
+            .prepare(`
+              INSERT INTO facebook_posted_content
+              (content_type, content_id, target_type, queue_id)
+              VALUES ('category_highlight', ?, ?, ?)
+            `)
+            .bind(post.category_id, post.target_type, post.id)
+            .run();
+        }
+
+        // Create initial analytics records
+        if (pagePostId) {
+          await db
+            .prepare(`
+              INSERT INTO facebook_post_analytics
+              (queue_id, post_id, target_type)
+              VALUES (?, ?, 'page')
+            `)
+            .bind(post.id, pagePostId)
+            .run();
+        }
+
+        if (groupPostId) {
+          await db
+            .prepare(`
+              INSERT INTO facebook_post_analytics
+              (queue_id, post_id, target_type)
+              VALUES (?, ?, 'group')
+            `)
+            .bind(post.id, groupPostId)
+            .run();
+        }
+
+        posted++;
+        await delayForRateLimit();
+      } catch (error: any) {
+        console.error(`Failed to post queue item ${post.id}:`, error);
+
+        // Mark as failed
+        await db
+          .prepare(`
+            UPDATE facebook_content_queue
+            SET status = 'failed',
+                error_message = ?
+            WHERE id = ?
+          `)
+          .bind(error.message, post.id)
+          .run();
+
+        failed++;
+      }
+    }
+
+    return { posted, failed };
+  } catch (error: any) {
+    console.error('Error processing pending posts:', error);
+    return { posted, failed };
+  }
+}
+
+/**
+ * Update analytics for recent posts (runs daily at 2 AM)
+ */
+async function updatePostAnalytics(env: any): Promise<void> {
+  const db = env.DB;
+  const pageToken = env.FB_PAGE_ACCESS_TOKEN;
+
+  try {
+    // Get posts from last 7 days that need analytics update
+    const sevenDaysAgo = Math.floor(Date.now() / 1000) - (7 * 86400);
+
+    const recentPosts = await db
+      .prepare(`
+        SELECT fpa.*, fcq.posted_at
+        FROM facebook_post_analytics fpa
+        JOIN facebook_content_queue fcq ON fcq.id = fpa.queue_id
+        WHERE fcq.posted_at > ?
+        AND fcq.posted_at < ?
+        ORDER BY fcq.posted_at DESC
+        LIMIT 100
+      `)
+      .bind(sevenDaysAgo, Math.floor(Date.now() / 1000) - 3600) // At least 1 hour old
+      .all();
+
+    for (const analytics of recentPosts.results as any[]) {
+      try {
+        // Only fetch Page insights (requires Page token)
+        if (analytics.target_type === 'page' && pageToken) {
+          const insights = await getPostInsights(analytics.post_id, pageToken);
+
+          await db
+            .prepare(`
+              UPDATE facebook_post_analytics
+              SET impressions = ?,
+                  reach = ?,
+                  engaged_users = ?,
+                  clicks = ?,
+                  reactions_breakdown = ?,
+                  last_updated = ?
+              WHERE id = ?
+            `)
+            .bind(
+              insights.post_impressions || 0,
+              insights.post_impressions_unique || 0,
+              insights.post_engaged_users || 0,
+              insights.post_clicks || 0,
+              JSON.stringify(insights.post_reactions_by_type_total || {}),
+              Math.floor(Date.now() / 1000),
+              analytics.id
+            )
+            .run();
+        }
+
+        // Get engagement counts (works for both Page and Group)
+        const engagement = await getPostEngagement(
+          analytics.post_id,
+          analytics.target_type === 'page' ? pageToken : env.FB_ACCESS_TOKEN
+        );
+
+        await db
+          .prepare(`
+            UPDATE facebook_post_analytics
+            SET likes_count = ?,
+                comments_count = ?,
+                shares_count = ?,
+                last_updated = ?
+            WHERE id = ?
+          `)
+          .bind(
+            engagement.likes,
+            engagement.comments,
+            engagement.shares,
+            Math.floor(Date.now() / 1000),
+            analytics.id
+          )
+          .run();
+
+        // Rate limit
+        await delayForRateLimit();
+      } catch (error: any) {
+        console.error(`Failed to update analytics for post ${analytics.post_id}:`, error);
+      }
+    }
+
+    console.log(`Updated analytics for ${recentPosts.results?.length || 0} posts`);
+  } catch (error: any) {
+    console.error('Error updating post analytics:', error);
+  }
 }
 
 async function enrichAllBusinesses(env: any) {
