@@ -40,7 +40,11 @@ coverage/
 ADMIN_CREDENTIALS.md
 AI_BUSINESS_ANALYZER_PLAN.md
 ANALYZER_DEPLOYMENT.md
+ANALYZER_STATUS.md
+ANALYZER_TESTING.md
+ANALYZER_USAGE_GUIDE.md
 BLOG_GENERATION_PLAN.md
+CLOUDFLARE_AGENTS_101_TRANSCRIPT.MD
 DEPLOYMENT.md
 DEPLOYMENT_CHECKLIST.md
 DEPLOYMENT_SUMMARY.md
@@ -56,7 +60,15 @@ GOOGLE_OAUTH_SETUP.md
 OAUTH_IMPLEMENTATION_PLAN.md
 PROJECT_SUMMARY.md
 QUICKSTART.md
+R2_ARCHITECTURE_DIAGRAMS.md
+R2_ARCHITECTURE_PROPOSAL.md
+R2_DECISION_MATRIX.md
+R2_EXECUTIVE_SUMMARY.md
+R2_IMPLEMENTATION_GUIDE.md
+R2_QUICK_REFERENCE.md
 SETUP_GUIDE.md
+WORKER_ARCHITECTURE.md
+browser_rendering.md
 
 # Data and imports
 Businessdata/
@@ -65,6 +77,15 @@ import-services-charge-stations-*.sql
 seed.sql
 lead-generation-schema.sql
 migration-*.sql
+migrations/
+
+# Build/dev directories
+public/
+templates/
+src/portal/
+src/facebook-content-generator.ts
+src/facebook-graph-api.ts
+src/facebook-scheduler.ts
 
 # Assets (can be added selectively if needed)
 screenshots/
