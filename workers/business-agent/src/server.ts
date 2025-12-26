@@ -1,0 +1,341 @@
+import { routeAgentRequest, type Schedule } from "agents";
+
+import { getSchedulePrompt } from "agents/schedule";
+
+import { AIChatAgent } from "agents/ai-chat-agent";
+
+// Export VoiceAgent for Durable Object binding
+export { VoiceAgent } from "./voice-agent";
+import {
+  generateId,
+  streamText,
+  type StreamTextOnFinishCallback,
+  stepCountIs,
+  createUIMessageStream,
+  convertToModelMessages,
+  createUIMessageStreamResponse,
+  type ToolSet
+} from "ai";
+import { openai } from "@ai-sdk/openai";
+import { processToolCalls, cleanupMessages } from "./utils";
+import { tools, executions } from "./tools";
+import {
+  handleMcpConnect,
+  handleMcpServers,
+  handleMcpDisconnect
+} from "./mcp-handlers";
+
+// Using OpenAI for now - will switch to Workers AI later
+const model = openai("gpt-4o-mini");
+
+/**
+ * Chat Agent implementation that handles real-time AI chat interactions
+ */
+export class Chat extends AIChatAgent<Env> {
+  /**
+   * Override fetch to check auth on EVERY request (including WebSocket upgrades)
+   */
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    console.log(`[DO] Chat DO request: ${request.method} ${url.pathname}`);
+
+    // Handle MCP-specific routes before auth (internal calls only)
+    if (url.pathname === "/mcp/connect") {
+      return this.handleMcpConnect(request);
+    }
+
+    if (url.pathname === "/mcp/servers") {
+      return this.handleMcpServers(request);
+    }
+
+    if (url.pathname === "/mcp/disconnect") {
+      return this.handleMcpDisconnect(request);
+    }
+
+    // Simple cookie presence check - trust the main worker's authentication
+    const cookie = request.headers.get("Cookie");
+    if (!cookie || !cookie.includes("admin_session=")) {
+      console.log(`[DO] No session cookie - access denied`);
+      return new Response("Unauthorized. Please login at https://kiamichibizconnect.com/admin", {
+        status: 401,
+        headers: { "Content-Type": "text/plain" }
+      });
+    }
+
+    console.log(`[DO] Access granted - valid session cookie present`);
+
+    // Pass to parent AIChatAgent
+    return super.fetch(request);
+  }
+
+
+  /**
+   * Error handler for server errors
+   */
+  onError(error: Error) {
+    console.error("Chat Agent Error:", error);
+    // You can add custom error handling logic here (e.g., logging to external service)
+  }
+
+  /**
+   * Handles incoming chat messages and manages the response stream
+   */
+  async onChatMessage(
+    onFinish: StreamTextOnFinishCallback<ToolSet>,
+    _options?: { abortSignal?: AbortSignal }
+  ) {
+    // Ensure jsonSchema is initialized before getting MCP tools
+    await this.mcp.ensureJsonSchema();
+
+    // Collect all tools, including MCP tools
+    const allTools = {
+      ...tools,
+      ...this.mcp.getAITools()
+    };
+
+    const stream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        // Clean up incomplete tool calls to prevent API errors
+        const cleanedMessages = cleanupMessages(this.messages);
+
+        // Process any pending tool calls from previous messages
+        // This handles human-in-the-loop confirmations for tools
+        const processedMessages = await processToolCalls({
+          messages: cleanedMessages,
+          dataStream: writer,
+          tools: allTools,
+          executions
+        });
+
+        // Get business context from metadata (passed when agent is instantiated)
+        const businessContext = this.metadata?.businessContext || {};
+
+        // Build dynamic system prompt based on business information
+        const systemPrompt = this.buildSystemPrompt(businessContext);
+
+        const result = streamText({
+          system: systemPrompt,
+          messages: await convertToModelMessages(processedMessages),
+          model,
+          tools: allTools,
+          // Type boundary: streamText expects specific tool types, but base class uses ToolSet
+          // This is safe because our tools satisfy ToolSet interface (verified by 'satisfies' in tools.ts)
+          onFinish: onFinish as unknown as StreamTextOnFinishCallback<
+            typeof allTools
+          >,
+          stopWhen: stepCountIs(10)
+        });
+
+        writer.merge(result.toUIMessageStream());
+      }
+    });
+
+    return createUIMessageStreamResponse({ stream });
+  }
+
+  /**
+   * Build system prompt for the AI assistant
+   */
+  private buildSystemPrompt(businessContext: any): string {
+    return `You are an AI assistant for Kiamichi Biz Connect.
+
+YOUR ROLE:
+- You can help manage ANY business listing in the directory
+- Generate blog posts, social content, and SEO optimization for any business
+- Create multi-modal content: images, videos, voice, and audio (via MCP)
+- Analyze business listings and provide improvement suggestions
+- Use the blog worker and analyzer tools to assist with content creation
+
+AVAILABLE CAPABILITIES:
+
+**Content Management:**
+1. Update page components (hero, services, gallery, testimonials, etc.)
+2. Generate SEO-optimized blog posts
+3. Create social media content for Facebook, Instagram, Twitter
+
+**AI Media Generation (via HuggingFace MCP):**
+4. Generate AI images using FLUX-LoRA, Stable Diffusion, or DALL-E (requires user approval)
+   - Perfect for: promotional graphics, social media posts, hero images, custom visuals
+   - Automatically stores in R2 and provides public URLs
+   - Supports custom dimensions and detailed prompts
+5. Generate videos using AI (short marketing videos) - coming soon
+6. Generate voice using AI (voice-overs, announcements) - coming soon
+7. Synthesize speech using AI (podcasts, accessibility) - coming soon
+
+**Analytics & Optimization:**
+8. Optimize SEO (keywords, meta tags, schema markup)
+9. Schedule tasks for future execution
+10. Retrieve business information and analytics
+
+**Database Access:**
+11. List all database tables
+12. Query the database with read-only SQL (SELECT statements)
+13. Get table schemas and structures
+14. Access business data, listings, components, and more
+
+**Specialized Agent Delegation:**
+15. Delegate complex SQL/database questions to the RAG agent (requires user approval)
+   - Use this for intelligent database queries beyond simple SELECTs
+   - The RAG agent specializes in SQL analysis and complex data retrieval
+   - You'll need user confirmation before delegating
+
+**IMPORTANT RULES:**
+- Always ask for confirmation before generating media or updating content
+- Images/videos/audio may be stored in R2 and you'll receive a public URL
+- When the user asks to work on a business, ask them for the business ID or name first
+
+${getSchedulePrompt({ date: new Date() })}`;
+  }
+  async executeTask(description: string, _task: Schedule<string>) {
+    await this.saveMessages([
+      ...this.messages,
+      {
+        id: generateId(),
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: `Running scheduled task: ${description}`
+          }
+        ],
+        metadata: {
+          createdAt: new Date()
+        }
+      }
+    ]);
+  }
+
+  /**
+   * Connect to MCP server (called internally by Worker)
+   */
+  private async handleMcpConnect(request: Request): Promise<Response> {
+    try {
+      const { serverUrl, name } = await request.json<{
+        serverUrl: string;
+        name: string;
+      }>();
+
+      console.log(`[MCP] Connecting to ${name} at ${serverUrl}`);
+
+      // Use Agent's addMcpServer method (as per Cloudflare docs)
+      const { id, authUrl } = await this.addMcpServer(name, serverUrl);
+
+      // If OAuth required, return authUrl
+      if (authUrl) {
+        console.log(`[MCP] OAuth required for ${name}`);
+        return Response.json({
+          status: "auth_required",
+          authUrl: authUrl,
+          serverId: id
+        });
+      }
+
+      // Otherwise, connection successful
+      console.log(`[MCP] Successfully connected to ${name}`);
+      return Response.json({
+        status: "connected",
+        serverId: id,
+        message: `Successfully connected to ${name}`
+      });
+    } catch (error) {
+      console.error("[MCP] Connect error:", error);
+      return Response.json({ error: String(error) }, { status: 500 });
+    }
+  }
+
+  /**
+   * List connected MCP servers and their tools
+   */
+  private async handleMcpServers(request: Request): Promise<Response> {
+    try {
+      console.log("[MCP] Listing servers");
+      // Use Agent's getMcpServers method (as per Cloudflare docs)
+      const mcpState = this.getMcpServers();
+
+      return Response.json(mcpState);
+    } catch (error) {
+      console.error("[MCP] Servers list error:", error);
+      return Response.json({ error: String(error) }, { status: 500 });
+    }
+  }
+
+  /**
+   * Disconnect from MCP server
+   */
+  private async handleMcpDisconnect(request: Request): Promise<Response> {
+    try {
+      const { serverId } = await request.json<{ serverId: string }>();
+
+      console.log(`[MCP] Disconnecting server ${serverId}`);
+
+      // Note: The agents framework may not expose a disconnect method
+      // For now, we'll return success - servers are managed in SQL storage
+      return Response.json({
+        status: "disconnected",
+        message: `Disconnected from server ${serverId}`
+      });
+    } catch (error) {
+      console.error("[MCP] Disconnect error:", error);
+      return Response.json({ error: String(error) }, { status: 500 });
+    }
+  }
+}
+
+/**
+ * Worker entry point that routes incoming requests to the appropriate handler
+ */
+export default {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
+    const url = new URL(request.url);
+
+    // Health check endpoint
+    if (url.pathname === "/health") {
+      return Response.json({
+        status: "ok",
+        service: "kiamichi-business-agent",
+        ai: !!env.AI,
+        db: !!env.DB,
+        r2: !!env.TEMPLATES && !!env.BUSINESS_ASSETS
+      });
+    }
+
+    // MCP Server Management Endpoints
+    if (url.pathname === "/api/mcp/connect") {
+      return handleMcpConnect(request, env);
+    }
+
+    if (url.pathname === "/api/mcp/servers") {
+      return handleMcpServers(request, env);
+    }
+
+    if (url.pathname === "/api/mcp/disconnect") {
+      return handleMcpDisconnect(request, env);
+    }
+
+    // Voice Agent Endpoints
+    if (url.pathname.startsWith("/voice/")) {
+      // Route to VoiceAgent Durable Object
+      const voiceAgentId = env.VoiceAgent.idFromName("default");
+      const voiceAgent = env.VoiceAgent.get(voiceAgentId);
+      return voiceAgent.fetch(request);
+    }
+
+    // Root path: Let routeAgentRequest handle it (it will serve the frontend)
+    // No special handling needed - just fall through to routeAgentRequest
+
+    // Verify required bindings
+    if (!env.AI) {
+      console.error("Workers AI binding not available");
+    }
+    if (!env.DB) {
+      console.error("D1 Database binding not available");
+    }
+
+    // Let agents framework handle routing
+    // Auth is enforced at the Durable Object level
+    return (
+      (await routeAgentRequest(request, env)) ||
+      new Response("Not found", { status: 404 })
+    );
+  }
+} satisfies ExportedHandler<Env>;

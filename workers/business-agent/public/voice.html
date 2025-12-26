@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Agent - Kiamichi Biz Connect</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 600px;
+      width: 100%;
+      padding: 40px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .status {
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      text-align: center;
+      font-weight: 500;
+    }
+
+    .status.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status.disconnected {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .status.listening {
+      background: #d1ecf1;
+      color: #0c5460;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .status.processing {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .controls {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      margin-bottom: 30px;
+    }
+
+    button {
+      padding: 15px 30px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #5568d3;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-danger {
+      background: #dc3545;
+      color: white;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: #c82333;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
+    }
+
+    .transcript-container {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+    }
+
+    .transcript-item {
+      margin-bottom: 15px;
+      padding: 12px;
+      border-radius: 8px;
+      background: white;
+    }
+
+    .transcript-item.user {
+      border-left: 4px solid #667eea;
+    }
+
+    .transcript-item.agent {
+      border-left: 4px solid #28a745;
+    }
+
+    .transcript-label {
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+      color: #666;
+    }
+
+    .transcript-text {
+      color: #333;
+      line-height: 1.5;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #999;
+      padding: 40px;
+      font-style: italic;
+    }
+
+    .icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Voice Agent</h1>
+    <p class="subtitle">Speak to interact with Kiamichi Biz Connect AI</p>
+
+    <div id="status" class="status disconnected">
+      Disconnected
+    </div>
+
+    <div id="error" class="error" style="display: none;"></div>
+
+    <div class="controls">
+      <button id="connectBtn" class="btn-primary" onclick="connect()">
+        <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+        </svg>
+        Connect
+      </button>
+      <button id="micBtn" class="btn-primary" onclick="toggleMicrophone()" disabled>
+        <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd" />
+        </svg>
+        Start Listening
+      </button>
+    </div>
+
+    <div class="transcript-container">
+      <div id="transcript">
+        <div class="empty-state">Click "Connect" and "Start Listening" to begin</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    let ws = null;
+    let audioContext = null;
+    let mediaStream = null;
+    let audioSource = null;
+    let processor = null;
+    let isListening = false;
+
+    window.connect = async function() {
+      try {
+        setStatus('Connecting...', 'processing');
+
+        // Get VoiceAgent DO stub
+        const voiceAgentId = 'default'; // Use default room
+        const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/voice/stream`;
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          setStatus('Connected', 'connected');
+          document.getElementById('connectBtn').disabled = true;
+          document.getElementById('micBtn').disabled = false;
+          clearError();
+        };
+
+        ws.onmessage = async (event) => {
+          const data = JSON.parse(event.data);
+          console.log('[Voice UI] Received:', data);
+
+          switch (data.type) {
+            case 'session-start':
+              addTranscript('system', data.message);
+              break;
+
+            case 'listening':
+              setStatus('Listening...', 'listening');
+              break;
+
+            case 'transcript':
+              addTranscript('user', data.text);
+              break;
+
+            case 'processing':
+              setStatus(data.message, 'processing');
+              break;
+
+            case 'response-text':
+              addTranscript('agent', data.text);
+              break;
+
+            case 'audio-response':
+              setStatus('Playing response...', 'processing');
+              await playAudio(data.audio);
+              setStatus('Connected - Ready', 'connected');
+              break;
+
+            case 'complete':
+              setStatus('Connected - Ready', 'connected');
+              break;
+
+            case 'error':
+              showError(data.error);
+              setStatus('Error', 'disconnected');
+              break;
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('[Voice UI] WebSocket error:', error);
+          showError('WebSocket connection failed');
+          setStatus('Error', 'disconnected');
+        };
+
+        ws.onclose = () => {
+          setStatus('Disconnected', 'disconnected');
+          document.getElementById('connectBtn').disabled = false;
+          document.getElementById('micBtn').disabled = true;
+          stopListening();
+        };
+
+      } catch (error) {
+        console.error('[Voice UI] Connection error:', error);
+        showError(error.message);
+        setStatus('Error', 'disconnected');
+      }
+    };
+
+    window.toggleMicrophone = async function() {
+      if (isListening) {
+        stopListening();
+      } else {
+        await startListening();
+      }
+    };
+
+    async function startListening() {
+      try {
+        // Request microphone access
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
+        // Create audio context
+        audioContext = new AudioContext({ sampleRate: 16000 });
+        audioSource = audioContext.createMediaStreamSource(mediaStream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+        // Handle audio data
+        processor.onaudioprocess = (event) => {
+          if (!isListening || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+          const inputData = event.inputBuffer.getChannelData(0);
+          const pcmData = float32ToInt16(inputData);
+
+          // Send audio chunk to server
+          ws.send(JSON.stringify({
+            type: 'audio-chunk',
+            audio: arrayBufferToBase64(pcmData.buffer)
+          }));
+        };
+
+        // Connect audio pipeline
+        audioSource.connect(processor);
+        processor.connect(audioContext.destination);
+
+        isListening = true;
+
+        // Notify server we're listening
+        ws.send(JSON.stringify({ type: 'start-listening' }));
+
+        // Update UI
+        document.getElementById('micBtn').innerHTML = `
+          <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
+          </svg>
+          Stop Listening
+        `;
+        document.getElementById('micBtn').className = 'btn-danger';
+
+        setStatus('Listening...', 'listening');
+        clearError();
+
+      } catch (error) {
+        console.error('[Voice UI] Microphone error:', error);
+        showError('Microphone access denied: ' + error.message);
+        stopListening();
+      }
+    }
+
+    function stopListening() {
+      if (ws && ws.readyState === WebSocket.OPEN && isListening) {
+        ws.send(JSON.stringify({ type: 'stop-listening' }));
+      }
+
+      if (processor) {
+        processor.disconnect();
+        processor = null;
+      }
+
+      if (audioSource) {
+        audioSource.disconnect();
+        audioSource = null;
+      }
+
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close();
+        audioContext = null;
+      }
+
+      isListening = false;
+
+      // Update UI
+      document.getElementById('micBtn').innerHTML = `
+        <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd" />
+        </svg>
+        Start Listening
+      `;
+      document.getElementById('micBtn').className = 'btn-primary';
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        setStatus('Connected - Ready', 'connected');
+      }
+    }
+
+    async function playAudio(base64Audio) {
+      try {
+        const audioData = base64ToArrayBuffer(base64Audio);
+        const playbackContext = new AudioContext({ sampleRate: 24000 });
+        const audioBuffer = await playbackContext.decodeAudioData(audioData);
+
+        const source = playbackContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(playbackContext.destination);
+
+        source.start(0);
+
+        return new Promise((resolve) => {
+          source.onended = () => {
+            playbackContext.close();
+            resolve();
+          };
+        });
+      } catch (error) {
+        console.error('[Voice UI] Audio playback error:', error);
+        showError('Audio playback failed: ' + error.message);
+      }
+    }
+
+    function float32ToInt16(float32Array) {
+      const int16Array = new Int16Array(float32Array.length);
+      for (let i = 0; i < float32Array.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Array[i]));
+        int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return int16Array;
+    }
+
+    function arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+
+    function base64ToArrayBuffer(base64) {
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    function setStatus(message, type) {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
+      statusEl.className = `status ${type}`;
+    }
+
+    function addTranscript(type, text) {
+      const transcriptEl = document.getElementById('transcript');
+
+      // Remove empty state if present
+      const emptyState = transcriptEl.querySelector('.empty-state');
+      if (emptyState) {
+        emptyState.remove();
+      }
+
+      const item = document.createElement('div');
+      item.className = `transcript-item ${type}`;
+
+      const label = document.createElement('div');
+      label.className = 'transcript-label';
+      label.textContent = type === 'user' ? 'You' : type === 'agent' ? 'Agent' : 'System';
+
+      const textEl = document.createElement('div');
+      textEl.className = 'transcript-text';
+      textEl.textContent = text;
+
+      item.appendChild(label);
+      item.appendChild(textEl);
+      transcriptEl.appendChild(item);
+
+      // Scroll to bottom
+      transcriptEl.parentElement.scrollTop = transcriptEl.parentElement.scrollHeight;
+    }
+
+    function showError(message) {
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+    }
+
+    function clearError() {
+      const errorEl = document.getElementById('error');
+      errorEl.style.display = 'none';
+    }
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      stopListening();
+      if (ws) {
+        ws.close();
+      }
+    });
+  </script>
+</body>
+</html>
