@@ -4,6 +4,7 @@
   "description": "Local business directory for Southeast Oklahoma, Northeast Texas, and Southwest Arkansas",
   "main": "src/index.ts",
   "scripts": {
+    "build": "cd workers/business-agent && npm run build",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:schema:local": "wrangler d1 execute kiamichi-biz-connect-db --local --file=./schema.sql",
