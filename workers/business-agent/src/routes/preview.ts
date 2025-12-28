@@ -64,7 +64,8 @@ export async function handlePreview(request: Request, env: Env): Promise<Respons
 
     // Check if session is expired
     const now = Math.floor(Date.now() / 1000);
-    if (session.expires_at && session.expires_at < now) {
+    const expiresAt = session.expires_at as number | null;
+    if (expiresAt && expiresAt < now) {
       return new Response('Unauthorized: Session expired', { status: 401 });
     }
 

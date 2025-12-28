@@ -25,6 +25,8 @@ import {
   handleMcpDisconnect
 } from "./mcp-handlers";
 import { handlePreview } from "./routes/preview";
+import { handleMyBusiness, handlePublish } from "./routes/api";
+import { getBusinessContextFromSession } from "./utils/session";
 
 // Using OpenAI for now - will switch to Workers AI later
 const model = openai("gpt-4o-mini");
@@ -33,6 +35,15 @@ const model = openai("gpt-4o-mini");
  * Chat Agent implementation that handles real-time AI chat interactions
  */
 export class Chat extends AIChatAgent<Env> {
+  metadata?: {
+    businessContext?: {
+      businessId: number;
+      businessName: string;
+      businessSlug: string;
+      ownerId: string;
+    };
+  };
+
   /**
    * Override fetch to check auth on EVERY request (including WebSocket upgrades)
    */
@@ -70,18 +81,34 @@ export class Chat extends AIChatAgent<Env> {
 
     console.log(`[DO] Session cookie present - allowing access`);
 
+    // Get business context from session and store in metadata
+    // This is used by tools to know which business to operate on
+    if (!this.metadata?.businessContext && this.env?.DB) {
+      try {
+        const businessContext = await getBusinessContextFromSession(request, this.env.DB);
+        if (businessContext) {
+          console.log(`[DO] Setting business context: ${businessContext.businessName} (ID: ${businessContext.businessId})`);
+          this.metadata = {
+            ...this.metadata,
+            businessContext: {
+              businessId: businessContext.businessId,
+              businessName: businessContext.businessName,
+              businessSlug: businessContext.businessSlug,
+              ownerId: businessContext.ownerId
+            }
+          };
+        } else {
+          console.warn(`[DO] No business context found for session`);
+        }
+      } catch (error) {
+        console.error(`[DO] Error loading business context:`, error);
+      }
+    }
+
     // Pass to parent AIChatAgent
     return super.fetch(request);
   }
 
-
-  /**
-   * Error handler for server errors
-   */
-  onError(error: Error) {
-    console.error("Chat Agent Error:", error);
-    // You can add custom error handling logic here (e.g., logging to external service)
-  }
 
   /**
    * Handles incoming chat messages and manages the response stream
@@ -418,6 +445,15 @@ export default {
     // Must be before routeAgentRequest to avoid conflict
     if (url.pathname.startsWith("/preview/")) {
       return handlePreview(request, env);
+    }
+
+    // API endpoints for frontend
+    if (url.pathname === "/api/my-business") {
+      return handleMyBusiness(request, env);
+    }
+
+    if (url.pathname === "/api/publish") {
+      return handlePublish(request, env);
     }
 
     // MCP Server Management Endpoints
