@@ -170,11 +170,12 @@ export async function handleFacebookAdminCallback(
     );
 
     // Set secure session cookie and redirect to admin
+    // Domain=.kiamichibizconnect.com allows cookie to work on all subdomains (app.*, etc.)
     return new Response(null, {
       status: 302,
       headers: {
         'Location': '/admin',
-        'Set-Cookie': `admin_session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Max-Age=86400; Path=/`
+        'Set-Cookie': `admin_session=${sessionId}; Domain=.kiamichibizconnect.com; HttpOnly; Secure; SameSite=Lax; Max-Age=86400; Path=/`
       }
     });
 

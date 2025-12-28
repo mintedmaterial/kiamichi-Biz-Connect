@@ -1,9 +1,9 @@
 /**
  * Voice Agent Durable Object
- * Handles real-time voice interactions with dual STT/TTS providers:
- * Primary: Cloudflare Workers AI (@cf/openai/whisper-tiny-en + @cf/cloudflare/aura-2-es)
- * Fallback: HuggingFace ResembleAI/chatterbox-turbo-demo
- * Based on: https://github.com/AshishKumar4/cloudflare-voicebots
+ * Handles real-time voice interactions using Deepgram API:
+ * - STT (Speech-to-Text): Deepgram Nova-3 via WebSocket
+ * - TTS (Text-to-Speech): Deepgram Aura (aura-asteria-en)
+ * Based on: https://developers.deepgram.com/docs/
  */
 
 import { DurableObject } from "cloudflare:workers";
@@ -28,74 +28,95 @@ export class VoiceAgent extends DurableObject {
    * Handle incoming WebSocket connections for voice streaming
    */
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+    try {
+      const url = new URL(request.url);
+      console.log(`[Voice] Fetch request: ${request.method} ${url.pathname}`);
 
-    // WebSocket upgrade for voice streaming
-    if (url.pathname === "/voice/stream" && request.headers.get("Upgrade") === "websocket") {
-      return this.handleWebSocketUpgrade(request);
+      // WebSocket upgrade for voice streaming
+      if (url.pathname === "/voice/stream" && request.headers.get("Upgrade") === "websocket") {
+        console.log(`[Voice] WebSocket upgrade requested`);
+        return this.handleWebSocketUpgrade(request);
+      }
+
+      // Health check
+      if (url.pathname === "/voice/health") {
+        return new Response(JSON.stringify({ status: "ok" }), {
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      console.log(`[Voice] Path not found: ${url.pathname}`);
+      return new Response("Not found", { status: 404 });
+    } catch (error) {
+      console.error("[Voice] Fetch error:", error);
+      return new Response(`Internal error: ${error}`, { status: 500 });
     }
-
-    // Health check
-    if (url.pathname === "/voice/health") {
-      return new Response(JSON.stringify({ status: "ok" }), {
-        headers: { "Content-Type": "application/json" }
-      });
-    }
-
-    return new Response("Not found", { status: 404 });
   }
 
   /**
    * Upgrade HTTP request to WebSocket for voice streaming
    */
   private async handleWebSocketUpgrade(request: Request): Promise<Response> {
-    const webSocketPair = new WebSocketPair();
-    const [client, server] = Object.values(webSocketPair);
+    try {
+      console.log(`[Voice] Creating WebSocket pair...`);
+      const webSocketPair = new WebSocketPair();
+      const [client, server] = Object.values(webSocketPair);
 
-    // Accept the WebSocket connection
-    server.accept();
+      console.log(`[Voice] Accepting WebSocket connection...`);
+      // Accept the WebSocket connection
+      server.accept();
 
-    // Generate session ID
-    const sessionId = crypto.randomUUID();
+      // Generate session ID
+      const sessionId = crypto.randomUUID();
+      console.log(`[Voice] Session ID: ${sessionId}`);
 
-    // Initialize session
-    const session: VoiceSession = {
-      websocket: server,
-      chatAgentId: "default", // Use default chat agent room
-      isListening: false,
-      audioBuffer: []
-    };
+      // Initialize session
+      const session: VoiceSession = {
+        websocket: server,
+        chatAgentId: "default", // Use default chat agent room
+        isListening: false,
+        audioBuffer: []
+      };
 
-    this.sessions.set(sessionId, session);
+      this.sessions.set(sessionId, session);
 
-    // Set up WebSocket event handlers
-    server.addEventListener("message", async (event) => {
-      await this.handleWebSocketMessage(sessionId, event);
-    });
+      // Set up WebSocket event handlers
+      server.addEventListener("message", async (event) => {
+        try {
+          await this.handleWebSocketMessage(sessionId, event);
+        } catch (error) {
+          console.error(`[Voice] Message handler error:`, error);
+        }
+      });
 
-    server.addEventListener("close", () => {
-      console.log(`[Voice] Session ${sessionId} closed`);
-      this.sessions.delete(sessionId);
-    });
+      server.addEventListener("close", () => {
+        console.log(`[Voice] Session ${sessionId} closed`);
+        this.sessions.delete(sessionId);
+      });
 
-    server.addEventListener("error", (error) => {
-      console.error(`[Voice] Session ${sessionId} error:`, error);
-      this.sessions.delete(sessionId);
-    });
+      server.addEventListener("error", (error) => {
+        console.error(`[Voice] Session ${sessionId} error:`, error);
+        this.sessions.delete(sessionId);
+      });
 
-    console.log(`[Voice] New session created: ${sessionId}`);
+      console.log(`[Voice] New session created: ${sessionId}`);
 
-    // Send welcome message
-    server.send(JSON.stringify({
-      type: "session-start",
-      sessionId,
-      message: "Voice agent connected. Start speaking!"
-    }));
+      // Send welcome message
+      server.send(JSON.stringify({
+        type: "session-start",
+        sessionId,
+        message: "Voice agent connected. Start speaking!"
+      }));
 
-    return new Response(null, {
-      status: 101,
-      webSocket: client
-    });
+      console.log(`[Voice] Returning WebSocket response with status 101`);
+      return new Response(null, {
+        status: 101,
+        webSocket: client
+      });
+    } catch (error) {
+      console.error(`[Voice] WebSocket upgrade error:`, error);
+      return new Response(`WebSocket upgrade failed: ${error}`, { status: 500 });
+    }
   }
 
   /**
@@ -130,23 +151,23 @@ export class VoiceAgent extends DurableObject {
           break;
 
         case "audio-chunk":
-          // Forward audio data directly to STT WebSocket for real-time transcription
+          // Forward audio data directly to Deepgram WebSocket for real-time transcription
           if (session.isListening) {
             const sttWs = this.sttWebSockets.get(sessionId);
-            if (sttWs && sttWs.readyState === WebSocket.READY_OPEN) {
+            if (sttWs && sttWs.readyState === WebSocket.OPEN) {
               const audioData = data.audio instanceof ArrayBuffer
                 ? data.audio
                 : this.base64ToArrayBuffer(data.audio);
 
-              // Send raw PCM audio to Deepgram Flux
+              // Send raw PCM audio to Deepgram (linear16 format)
               sttWs.send(audioData);
 
               if (!session.hasReceivedAudio) {
                 session.hasReceivedAudio = true;
-                console.log("[Voice] First audio chunk sent to STT, size:", audioData.byteLength, "bytes");
+                console.log("[Voice] First audio chunk sent to Deepgram, size:", audioData.byteLength, "bytes");
               }
             } else {
-              console.warn("[Voice] STT WebSocket not ready, state:", sttWs?.readyState);
+              console.warn("[Voice] Deepgram WebSocket not ready, state:", sttWs?.readyState);
             }
           }
           break;
@@ -155,9 +176,14 @@ export class VoiceAgent extends DurableObject {
           session.isListening = false;
           console.log(`[Voice] Session ${sessionId} stopped listening`);
 
-          // Close STT WebSocket
+          // Properly close Deepgram connection
           const sttWs = this.sttWebSockets.get(sessionId);
-          if (sttWs) {
+          if (sttWs && sttWs.readyState === WebSocket.OPEN) {
+            // Send CloseStream message to Deepgram to finalize transcription
+            sttWs.send(JSON.stringify({ type: "CloseStream" }));
+            console.log("[Voice] Sent CloseStream to Deepgram");
+
+            // Close the WebSocket
             sttWs.close();
             this.sttWebSockets.delete(sessionId);
           }
@@ -185,86 +211,109 @@ export class VoiceAgent extends DurableObject {
   }
 
   /**
-   * Initialize real-time STT using Workers AI Deepgram Flux
+   * Initialize real-time STT using Deepgram API
    */
   private async initializeRealtimeSTT(sessionId: string, session: VoiceSession): Promise<void> {
     try {
-      console.log(`[Voice] Initializing real-time STT with Workers AI Deepgram Flux for session ${sessionId}`);
+      console.log(`[Voice] Initializing real-time STT with Deepgram for session ${sessionId}`);
 
-      // Use Workers AI Deepgram Flux model with WebSocket streaming
-      // This is the native way to do real-time STT in Cloudflare Workers
-      const response = await this.env.AI.run("@cf/deepgram/flux", {
-        encoding: "linear16",
-        sample_rate: "48000"
-      }, {
-        websocket: true
-      }) as Response;
-
-      // @ts-ignore - webSocket property exists on AI.run response in websocket mode
-      const sttWs: WebSocket = response.webSocket;
-
-      if (!sttWs) {
-        throw new Error("Failed to create Deepgram Flux WebSocket");
+      if (!this.env.DEEPGRAM_API_KEY) {
+        throw new Error("DEEPGRAM_API_KEY not configured");
       }
 
-      console.log("[Voice] Workers AI Deepgram Flux WebSocket created, accepting...");
-      sttWs.accept();
+      // Create WebSocket connection to Deepgram Live API
+      // Using 48000 Hz to match browser's default AudioContext sample rate
+      const deepgramUrl = new URL('https://api.deepgram.com/v1/listen');
+      deepgramUrl.searchParams.set('model', 'nova-2');
+      deepgramUrl.searchParams.set('language', 'en');
+      deepgramUrl.searchParams.set('smart_format', 'true');
+      deepgramUrl.searchParams.set('interim_results', 'false');
+      deepgramUrl.searchParams.set('encoding', 'linear16');
+      deepgramUrl.searchParams.set('sample_rate', '48000');
+      deepgramUrl.searchParams.set('channels', '1');
+      deepgramUrl.searchParams.set('endpointing', '300');
+
+      // Add auth token as query parameter (Deepgram supports this)
+      deepgramUrl.searchParams.set('token', this.env.DEEPGRAM_API_KEY);
+
+      // Convert to WSS URL
+      const wsUrl = deepgramUrl.toString().replace('https://', 'wss://');
+      console.log(`[Voice] Connecting to Deepgram at`, wsUrl.replace(this.env.DEEPGRAM_API_KEY, 'REDACTED'));
+
+      // Create standard WebSocket connection (no headers option in Workers)
+      const sttWs = new WebSocket(wsUrl);
+
       this.sttWebSockets.set(sessionId, sttWs);
 
       let fullTranscript = "";
+      let keepAliveInterval: NodeJS.Timeout | null = null;
 
-      // Handle transcription events from Workers AI Deepgram Flux
+      // Wait for connection to open before sending audio
+      sttWs.addEventListener("open", () => {
+        console.log(`[Voice] Deepgram WebSocket opened for session ${sessionId}`);
+
+        // Send KeepAlive messages every 5 seconds to prevent timeout
+        keepAliveInterval = setInterval(() => {
+          if (sttWs.readyState === WebSocket.OPEN) {
+            sttWs.send(JSON.stringify({ type: "KeepAlive" }));
+          }
+        }, 5000);
+      });
+
+      // Handle transcription events from Deepgram
       sttWs.addEventListener("message", async (event: MessageEvent) => {
         try {
           const result = JSON.parse(event.data as string);
-          console.log("[Voice] Workers AI Deepgram Flux event:", result);
+          console.log("[Voice] Deepgram event:", JSON.stringify(result).substring(0, 200));
 
-          // Workers AI Deepgram Flux response format
-          // { event: "Finalized", transcript: "text", turn_index: 0, ... }
-          if (result.event === "Finalized" && result.transcript) {
-            const transcript = result.transcript.trim();
-            if (transcript) {
+          // Deepgram response format
+          // { channel: { alternatives: [{ transcript: "text" }] }, is_final: true, speech_final: true }
+          if (result.channel?.alternatives?.[0]) {
+            const transcript = result.channel.alternatives[0].transcript?.trim();
+
+            // Only process final transcripts with actual content
+            if (transcript && result.is_final && result.speech_final) {
               fullTranscript += (fullTranscript ? " " : "") + transcript;
-              console.log("[Voice] Full transcript so far:", fullTranscript);
+              console.log("[Voice] Final transcript:", fullTranscript);
 
-            // Send transcript to client
-            session.websocket.send(JSON.stringify({
-              type: "transcript",
-              text: fullTranscript
-            }));
+              // Send transcript to client
+              session.websocket.send(JSON.stringify({
+                type: "transcript",
+                text: fullTranscript
+              }));
 
-            // Process with Chat Agent and get response
-            session.websocket.send(JSON.stringify({
-              type: "processing",
-              message: "Processing your request..."
-            }));
+              // Process with Chat Agent and get response
+              session.websocket.send(JSON.stringify({
+                type: "processing",
+                message: "Processing your request..."
+              }));
 
-            const chatResponse = await this.sendToChatAgent(session.chatAgentId, fullTranscript);
+              const chatResponse = await this.sendToChatAgent(session.chatAgentId, fullTranscript);
 
-            session.websocket.send(JSON.stringify({
-              type: "response-text",
-              text: chatResponse
-            }));
+              session.websocket.send(JSON.stringify({
+                type: "response-text",
+                text: chatResponse
+              }));
 
-            // Convert response to speech
-            session.websocket.send(JSON.stringify({
-              type: "processing",
-              message: "Generating speech..."
-            }));
+              // Convert response to speech
+              session.websocket.send(JSON.stringify({
+                type: "processing",
+                message: "Generating speech..."
+              }));
 
-            const audioResponse = await this.textToSpeech(chatResponse);
+              const audioResponse = await this.textToSpeech(chatResponse);
 
-            // Send audio back
-            session.websocket.send(JSON.stringify({
-              type: "audio-response",
-              audio: this.arrayBufferToBase64(audioResponse),
-              format: "audio/wav"
-            }));
+              // Send audio back
+              session.websocket.send(JSON.stringify({
+                type: "audio-response",
+                audio: this.arrayBufferToBase64(audioResponse),
+                format: "audio/mp3"
+              }));
 
-            session.websocket.send(JSON.stringify({
-              type: "complete",
-              message: "Response complete"
-            }));
+              session.websocket.send(JSON.stringify({
+                type: "complete",
+                message: "Response complete"
+              }));
 
               // Reset transcript for next turn
               fullTranscript = "";
@@ -276,15 +325,23 @@ export class VoiceAgent extends DurableObject {
       });
 
       sttWs.addEventListener("error", (error) => {
-        console.error(`[Voice] STT WebSocket error for session ${sessionId}:`, error);
+        console.error(`[Voice] Deepgram WebSocket error for session ${sessionId}:`, error);
+        if (keepAliveInterval) {
+          clearInterval(keepAliveInterval);
+          keepAliveInterval = null;
+        }
         session.websocket.send(JSON.stringify({
           type: "error",
           error: "Speech recognition error"
         }));
       });
 
-      sttWs.addEventListener("close", () => {
-        console.log(`[Voice] STT WebSocket closed for session ${sessionId}`);
+      sttWs.addEventListener("close", (event) => {
+        console.log(`[Voice] Deepgram WebSocket closed for session ${sessionId}, code: ${event.code}, reason: ${event.reason}`);
+        if (keepAliveInterval) {
+          clearInterval(keepAliveInterval);
+          keepAliveInterval = null;
+        }
         this.sttWebSockets.delete(sessionId);
       });
 
@@ -432,50 +489,39 @@ export class VoiceAgent extends DurableObject {
   }
 
   /**
-   * Convert text to speech using Workers AI or fallback
+   * Convert text to speech using Deepgram API
    */
   private async textToSpeech(text: string): Promise<ArrayBuffer> {
-    // Try Workers AI TTS first
-    if (this.env.AI) {
-      try {
-        console.log("[Voice] Using Workers AI TTS");
-        console.log("[Voice] Text to synthesize:", text.substring(0, 100));
-
-        const response = await this.env.AI.run("@cf/cloudflare/aura-2-es", {
-          text: text
-        }) as ArrayBuffer;
-
-        if (response && response.byteLength > 0) {
-          console.log("[Voice] Workers AI TTS success, audio size:", response.byteLength, "bytes");
-          return response;
-        }
-      } catch (error) {
-        console.error("[Voice] Workers AI TTS error:", error);
-        console.warn("[Voice] Falling back to HuggingFace");
-      }
-    }
-
-    // Fallback to HuggingFace ResembleAI
     try {
-      console.log("[Voice] Using HuggingFace ResembleAI for TTS");
+      console.log("[Voice] Using Deepgram TTS");
+      console.log("[Voice] Text to synthesize:", text.substring(0, 100));
 
-      const response = await fetch("https://api-inference.huggingface.co/models/ResembleAI/chatterbox-turbo-demo", {
+      if (!this.env.DEEPGRAM_API_KEY) {
+        throw new Error("DEEPGRAM_API_KEY not configured");
+      }
+
+      // Use Deepgram TTS REST API
+      const response = await fetch("https://api.deepgram.com/v1/speak?model=aura-asteria-en", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${this.env.HUGGINGFACE_API_KEY}`,
-          "Content-Type": "application/json"
+          "Authorization": `Token ${this.env.DEEPGRAM_API_KEY}`,
+          "Content-Type": "text/plain"
         },
-        body: JSON.stringify({ inputs: text })
+        body: text
       });
 
       if (!response.ok) {
-        throw new Error(`HuggingFace TTS API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`[Voice] Deepgram TTS error: ${response.status} - ${errorText}`);
+        throw new Error(`Deepgram TTS API error: ${response.status}`);
       }
 
-      return await response.arrayBuffer();
+      const audioBuffer = await response.arrayBuffer();
+      console.log("[Voice] Deepgram TTS success, audio size:", audioBuffer.byteLength, "bytes");
+      return audioBuffer;
 
     } catch (error) {
-      console.error("[Voice] All TTS providers failed:", error);
+      console.error("[Voice] Deepgram TTS failed:", error);
       throw new Error(`Text-to-speech failed: ${error}`);
     }
   }
@@ -489,31 +535,26 @@ export class VoiceAgent extends DurableObject {
       const id = this.env.Chat.idFromName(chatAgentId);
       const chatDO = this.env.Chat.get(id);
 
-      // Send message to chat agent
-      const response = await chatDO.fetch(new Request("https://fake-host/agents/chat/default/send-message", {
+      // Send message to chat agent using new voice message endpoint
+      const response = await chatDO.fetch(new Request("https://fake-host/voice/message", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "Cookie": "admin_session=voice-agent" // Bypass auth for internal calls
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          role: "user",
-          parts: [{ type: "text", text: message }]
+          text: message
         })
       }));
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Voice] Chat agent error: ${response.status} - ${errorText}`);
         throw new Error(`Chat agent error: ${response.status}`);
       }
 
-      const result = await response.json() as any;
+      const result = await response.json() as { text: string; success: boolean };
 
-      // Extract text from response
-      // Assuming response format matches agent message structure
-      const textParts = result.parts?.filter((p: any) => p.type === "text") || [];
-      const responseText = textParts.map((p: any) => p.text).join(" ");
-
-      return responseText || "I'm sorry, I couldn't process that request.";
+      return result.text || "I'm sorry, I couldn't process that request.";
 
     } catch (error) {
       console.error("[Voice] Chat agent error:", error);

@@ -18,12 +18,13 @@ import {
 } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { processToolCalls, cleanupMessages } from "./utils";
-import { tools, executions } from "./tools";
+import { tools, executions } from "./tools/index";
 import {
   handleMcpConnect,
   handleMcpServers,
   handleMcpDisconnect
 } from "./mcp-handlers";
+import { handlePreview } from "./routes/preview";
 
 // Using OpenAI for now - will switch to Workers AI later
 const model = openai("gpt-4o-mini");
@@ -52,17 +53,22 @@ export class Chat extends AIChatAgent<Env> {
       return this.handleMcpDisconnect(request);
     }
 
-    // Simple cookie presence check - trust the main worker's authentication
-    const cookie = request.headers.get("Cookie");
-    if (!cookie || !cookie.includes("admin_session=")) {
-      console.log(`[DO] No session cookie - access denied`);
-      return new Response("Unauthorized. Please login at https://kiamichibizconnect.com/admin", {
-        status: 401,
-        headers: { "Content-Type": "text/plain" }
-      });
+    // Handle voice message endpoint (internal calls from VoiceAgent)
+    if (url.pathname === "/voice/message" && request.method === "POST") {
+      return this.handleVoiceMessage(request);
     }
 
-    console.log(`[DO] Access granted - valid session cookie present`);
+    // Simple cookie check - if no session cookie, user needs to login
+    const cookie = request.headers.get("Cookie");
+    const hasSession = cookie && cookie.includes("admin_session=");
+
+    if (!hasSession) {
+      console.log(`[DO] No session cookie - redirecting to login`);
+      // Redirect to main domain for authentication
+      return Response.redirect("https://kiamichibizconnect.com/auth/google/login", 302);
+    }
+
+    console.log(`[DO] Session cookie present - allowing access`);
 
     // Pass to parent AIChatAgent
     return super.fetch(request);
@@ -137,7 +143,7 @@ export class Chat extends AIChatAgent<Env> {
    * Build system prompt for the AI assistant
    */
   private buildSystemPrompt(businessContext: any): string {
-    return `You are an AI assistant for Kiamichi Biz Connect.
+    return `You are an Chi, and agent with Kiamichi Biz Connect.
 
 YOUR ROLE:
 - You can help manage ANY business listing in the directory
@@ -279,6 +285,115 @@ ${getSchedulePrompt({ date: new Date() })}`;
       return Response.json({ error: String(error) }, { status: 500 });
     }
   }
+
+  /**
+   * Handle voice message from VoiceAgent DO
+   * This is a simplified endpoint that accepts text input and returns text output
+   * without the full WebSocket streaming protocol
+   */
+  private async handleVoiceMessage(request: Request): Promise<Response> {
+    try {
+      const { text } = await request.json<{ text: string }>();
+
+      console.log(`[Voice] Processing voice message: ${text}`);
+
+      // Ensure jsonSchema is initialized
+      await this.mcp.ensureJsonSchema();
+
+      // Collect all tools, including MCP tools
+      const allTools = {
+        ...tools,
+        ...this.mcp.getAITools()
+      };
+
+      // Add user message to conversation
+      const userMessage = {
+        id: generateId(),
+        role: "user" as const,
+        parts: [
+          {
+            type: "text" as const,
+            text: text
+          }
+        ],
+        metadata: {
+          createdAt: new Date(),
+          source: "voice"
+        }
+      };
+
+      // Add to messages
+      this.messages.push(userMessage);
+
+      // Clean up incomplete tool calls
+      const cleanedMessages = cleanupMessages(this.messages);
+
+      // Process tool calls
+      const processedMessages = await processToolCalls({
+        messages: cleanedMessages,
+        dataStream: null as any, // Voice doesn't need streaming
+        tools: allTools,
+        executions
+      });
+
+      // Get business context
+      const businessContext = this.metadata?.businessContext || {};
+      const systemPrompt = this.buildSystemPrompt(businessContext);
+
+      // Generate response (non-streaming)
+      const result = await streamText({
+        system: systemPrompt,
+        messages: await convertToModelMessages(processedMessages),
+        model,
+        tools: allTools,
+        stopWhen: stepCountIs(10)
+      });
+
+      // Collect the full text response
+      let fullText = "";
+      for await (const chunk of result.textStream) {
+        fullText += chunk;
+      }
+
+      console.log(`[Voice] Generated response: ${fullText.substring(0, 100)}...`);
+
+      // Add assistant message to conversation
+      const assistantMessage = {
+        id: generateId(),
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "text" as const,
+            text: fullText
+          }
+        ],
+        metadata: {
+          createdAt: new Date(),
+          source: "voice"
+        }
+      };
+
+      this.messages.push(assistantMessage);
+
+      // Save messages to storage
+      await this.saveMessages(this.messages);
+
+      return Response.json({
+        text: fullText,
+        success: true
+      });
+
+    } catch (error) {
+      console.error("[Voice] Error processing voice message:", error);
+      return Response.json(
+        {
+          error: String(error),
+          text: "I'm sorry, I encountered an error processing your request."
+        },
+        { status: 500 }
+      );
+    }
+  }
 }
 
 /**
@@ -297,6 +412,12 @@ export default {
         db: !!env.DB,
         r2: !!env.TEMPLATES && !!env.BUSINESS_ASSETS
       });
+    }
+
+    // Preview route for business listing pages
+    // Must be before routeAgentRequest to avoid conflict
+    if (url.pathname.startsWith("/preview/")) {
+      return handlePreview(request, env);
     }
 
     // MCP Server Management Endpoints
@@ -331,8 +452,11 @@ export default {
       console.error("D1 Database binding not available");
     }
 
+    // Note: Authentication is handled by the main worker (/chat route)
+    // The main worker validates the session before redirecting here
+    // Additional auth here causes issues with the React app's direct requests
+
     // Let agents framework handle routing
-    // Auth is enforced at the Durable Object level
     return (
       (await routeAgentRequest(request, env)) ||
       new Response("Not found", { status: 404 })

@@ -1,8 +1,9 @@
 export interface Env {
   DB: D1Database;
   IMAGES: R2Bucket;
+  TEMPLATES: R2Bucket;
   CACHE: KVNamespace;
-  AI: Ai;
+  AI: Ai; // Includes Workers AI and AI Search (autorag)
   ANALYZER: Fetcher; // Service binding to analyzer worker
   SITE_NAME: string;
   SITE_URL: string;
@@ -166,4 +167,97 @@ export interface PostAnalysisResult {
   quality_score: number;
   relevance_tags: string[];
   reasoning: string;
+}
+
+// Facebook Automated Posting System Interfaces
+
+export interface FacebookContentQueue {
+  id: number;
+  content_type: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt';
+  target_type: 'page' | 'group' | 'both';
+  business_id: number | null;
+  blog_post_id: number | null;
+  category_id: number | null;
+  message: string;
+  link: string | null;
+  image_url: string | null;
+  scheduled_for: number; // Unix timestamp
+  status: 'pending' | 'posted' | 'failed';
+  priority: number; // 1-10, higher = more important
+  content_hash: string | null; // For deduplication
+  created_at: number;
+  posted_at: number | null;
+  error_message: string | null;
+  page_post_id: string | null; // Facebook post ID for Page
+  group_post_id: string | null; // Facebook post ID for Group
+}
+
+export interface FacebookPostAnalytics {
+  id: number;
+  queue_id: number;
+  post_id: string; // Facebook post ID
+  target_type: 'page' | 'group';
+  impressions: number;
+  reach: number;
+  engaged_users: number;
+  clicks: number;
+  likes_count: number;
+  comments_count: number;
+  shares_count: number;
+  reactions_breakdown: string | null; // JSON: {like: 10, love: 5, ...}
+  last_updated: number;
+}
+
+export interface FacebookPostingSchedule {
+  id: number;
+  time_slot: 'morning' | 'midday' | 'afternoon' | 'evening' | 'night';
+  hour_utc: number; // 0-23
+  minute: number; // 0-59
+  preferred_content_types: string; // JSON array: ["business_spotlight", "category_highlight"]
+  target_type: 'page' | 'group' | 'both';
+  is_active: boolean;
+  created_at: number;
+}
+
+export interface ContentGenerationContext {
+  contentType: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt';
+  targetType: 'page' | 'group' | 'both';
+  business?: Business;
+  blogPost?: BlogPost;
+  category?: Category;
+  siteUrl: string;
+  utmCampaign: string;
+}
+
+export interface FacebookGraphAPIResponse {
+  id?: string;
+  error?: {
+    message: string;
+    type: string;
+    code: number;
+    error_subcode?: number;
+    fbtrace_id?: string;
+  };
+}
+
+export interface FacebookPostInsights {
+  post_impressions?: number;
+  post_impressions_unique?: number;
+  post_engaged_users?: number;
+  post_clicks?: number;
+  post_reactions_by_type_total?: {
+    like?: number;
+    love?: number;
+    wow?: number;
+    haha?: number;
+    sad?: number;
+    angry?: number;
+  };
+}
+
+export interface FacebookPageInfo {
+  id: string;
+  name: string;
+  fan_count?: number;
+  followers_count?: number;
 }

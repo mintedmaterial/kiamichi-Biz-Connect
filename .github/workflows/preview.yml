@@ -1,0 +1,246 @@
+name: Preview Deployments
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+# Only allow one preview deployment per PR at a time
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Deploy preview environments for PRs
+  deploy-preview:
+    name: Deploy Preview
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      # Deploy main worker preview
+      - name: Deploy Main Worker Preview
+        id: deploy-main
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env preview
+          secrets: |
+            ADMIN_KEY
+            GOOGLE_CLIENT_SECRET
+            FACEBOOK_APP_SECRET
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+        continue-on-error: true
+
+      # Deploy business-agent preview
+      - name: Install business-agent dependencies
+        working-directory: workers/business-agent
+        run: npm ci
+
+      - name: Build business-agent
+        working-directory: workers/business-agent
+        run: npm run build
+
+      - name: Deploy Business Agent Preview
+        id: deploy-business-agent
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/business-agent
+          command: deploy --env preview
+          secrets: |
+            GOOGLE_CLIENT_SECRET
+            FACEBOOK_APP_SECRET
+        env:
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+        continue-on-error: true
+
+      # Deploy analyzer preview
+      - name: Install analyzer dependencies
+        working-directory: workers/analyzer-worker
+        run: npm ci --ignore-scripts
+
+      - name: Deploy Analyzer Preview
+        id: deploy-analyzer
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/analyzer-worker
+          command: deploy --env preview
+        continue-on-error: true
+
+      # Deploy facebook worker preview
+      - name: Install facebook worker dependencies
+        working-directory: workers/facebook-worker
+        run: npm ci --ignore-scripts
+
+      - name: Deploy Facebook Worker Preview
+        id: deploy-facebook
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/facebook-worker
+          command: deploy --env preview
+          secrets: |
+            FB_EMAIL
+            FB_PASSWORD
+            FACEBOOK_APP_SECRET
+        env:
+          FB_EMAIL: ${{ secrets.FB_EMAIL }}
+          FB_PASSWORD: ${{ secrets.FB_PASSWORD }}
+          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+        continue-on-error: true
+
+      # Comment on PR with preview URLs
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const commit = context.payload.pull_request.head.sha.substring(0, 7);
+
+            const comment = `## Preview Deployments
+
+            Your preview deployments are ready! :rocket:
+
+            | Worker | Status | URL |
+            |--------|--------|-----|
+            | Main Worker | ${{ steps.deploy-main.outcome }} | [Preview](https://kiamichi-biz-connect-preview.workers.dev) |
+            | Business Agent | ${{ steps.deploy-business-agent.outcome }} | [Preview](https://kiamichi-business-agent-preview.workers.dev) |
+            | Analyzer Worker | ${{ steps.deploy-analyzer.outcome }} | Background worker |
+            | Facebook Worker | ${{ steps.deploy-facebook.outcome }} | Background worker |
+
+            **Commit:** \`${commit}\`
+            **Branch:** \`${{ github.head_ref }}\`
+
+            ---
+
+            ### Testing Notes
+            - Preview environments use the same D1 database as production (be careful!)
+            - Cron triggers are disabled in preview environments
+            - OAuth callbacks should be configured for preview domains if needed
+
+            Preview deployments will be automatically cleaned up when this PR is closed.
+            `;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Preview Deployments')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: comment
+              });
+            }
+
+  # Cleanup preview deployments when PR is closed
+  cleanup-preview:
+    name: Cleanup Preview
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # Delete preview deployments
+      - name: Delete Main Worker Preview
+        run: |
+          npx wrangler delete --name kiamichi-biz-connect-preview --force || echo "Preview already deleted"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        continue-on-error: true
+
+      - name: Delete Business Agent Preview
+        run: |
+          npx wrangler delete --name kiamichi-business-agent-preview --force || echo "Preview already deleted"
+        working-directory: workers/business-agent
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        continue-on-error: true
+
+      - name: Delete Analyzer Preview
+        run: |
+          npx wrangler delete --name kiamichi-biz-ai-analyzer-preview --force || echo "Preview already deleted"
+        working-directory: workers/analyzer-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        continue-on-error: true
+
+      - name: Delete Facebook Worker Preview
+        run: |
+          npx wrangler delete --name kiamichi-facebook-worker-preview --force || echo "Preview already deleted"
+        working-directory: workers/facebook-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        continue-on-error: true
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.payload.pull_request.number;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: '### Preview Deployments Cleaned Up :broom:\n\nAll preview workers have been deleted.'
+            });

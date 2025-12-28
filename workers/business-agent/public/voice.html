@@ -318,7 +318,6 @@
         // Request microphone access
         mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: {
-            sampleRate: 16000,
             channelCount: 1,
             echoCancellation: true,
             noiseSuppression: true,
@@ -326,8 +325,11 @@
           }
         });
 
-        // Create audio context
-        audioContext = new AudioContext({ sampleRate: 16000 });
+        // Create audio context without specifying sample rate - use browser's default
+        // This prevents sample rate mismatch errors
+        audioContext = new AudioContext();
+        console.log('[Voice UI] AudioContext sample rate:', audioContext.sampleRate);
+
         audioSource = audioContext.createMediaStreamSource(mediaStream);
         processor = audioContext.createScriptProcessor(4096, 1, 1);
 
@@ -417,7 +419,8 @@
     async function playAudio(base64Audio) {
       try {
         const audioData = base64ToArrayBuffer(base64Audio);
-        const playbackContext = new AudioContext({ sampleRate: 24000 });
+        // Use default sample rate - decodeAudioData will handle MP3 format automatically
+        const playbackContext = new AudioContext();
         const audioBuffer = await playbackContext.decodeAudioData(audioData);
 
         const source = playbackContext.createBufferSource();
