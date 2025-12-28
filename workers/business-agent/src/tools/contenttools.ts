@@ -49,17 +49,17 @@ export const optimizeSEO = tool({
 });
 
 /**
- * Generate AI images using HuggingFace models via MCP
+ * Generate AI images using Workers AI
  * Requires human confirmation before generation
  */
 export const generateImage = tool({
-  description: "Generate AI images using HuggingFace's advanced image models (FLUX-LoRA, Stable Diffusion, etc.) via MCP. Perfect for creating business graphics, social media images, promotional materials, and custom visuals.",
+  description: "Generate AI images using Cloudflare Workers AI (Stable Diffusion XL). Images are stored in R2 and can be used for social posts, blog content, or business listing graphics.",
   inputSchema: z.object({
-    prompt: z.string().describe("Detailed description of the image to generate (e.g., 'Professional hair salon interior with modern styling chairs')"),
-    model: z.enum(["flux-lora", "stable-diffusion", "dall-e"]).default("flux-lora").describe("The AI model to use for generation"),
-    width: z.number().default(1024).describe("Image width in pixels"),
-    height: z.number().default(1024).describe("Image height in pixels"),
-    businessId: z.number().optional().describe("Business ID to associate the image with (for storage in R2)")
+    prompt: z.string().describe("Detailed description of the image to generate (e.g., 'Professional hair salon interior with modern styling chairs, natural lighting')"),
+    purpose: z.enum(["social", "blog", "business-hero", "business-gallery", "business-logo"]).describe("What the image will be used for - determines R2 bucket and folder structure"),
+    width: z.number().default(1024).describe("Image width in pixels (max 1024)"),
+    height: z.number().default(1024).describe("Image height in pixels (max 1024)"),
+    businessId: z.number().optional().describe("Business ID to associate the image with (required for business-* purposes)")
   })
   // Omitting execute makes this require human confirmation
 });
@@ -177,11 +177,11 @@ Format: JSON with fields "title", "content" (HTML), "metaDescription" (max 160 c
 
   /**
    * Execute image generation after human confirmation
-   * Uses HuggingFace MCP for AI image generation
+   * Uses Workers AI Stable Diffusion XL for image generation
    */
-  generateImage: async ({ prompt, model, width, height, businessId }: {
+  generateImage: async ({ prompt, purpose, width, height, businessId }: {
     prompt: string;
-    model: string;
+    purpose: string;
     width: number;
     height: number;
     businessId?: number;
@@ -189,77 +189,91 @@ Format: JSON with fields "title", "content" (HTML), "metaDescription" (max 160 c
     const { agent } = getCurrentAgent<Chat>();
     const env = agent?.env;
 
-    if (!env) {
-      throw new Error("Environment not available");
+    if (!env?.AI) {
+      throw new Error("Workers AI not available");
+    }
+
+    // Validate businessId for business purposes
+    if (purpose.startsWith('business-') && !businessId) {
+      return {
+        success: false,
+        error: "Business ID is required for business-* image purposes"
+      };
     }
 
     try {
-      console.log(`[MCP] Generating image with model: ${model}, prompt: ${prompt}`);
+      console.log(`[AI] Generating image with Stable Diffusion XL: ${prompt}`);
 
-      // Ensure HuggingFace MCP is connected
-      const mcpTools = agent!.mcp.getAITools();
+      // Generate image using Workers AI
+      const response = await env.AI.run("@cf/stabilityai/stable-diffusion-xl-base-1.0", {
+        prompt: prompt,
+        width: Math.min(width, 1024),
+        height: Math.min(height, 1024)
+      });
 
-      // Check if HuggingFace MCP is already connected
-      const hfToolsExist = Object.keys(mcpTools).some(tool => tool.includes('huggingface') || tool.includes('image'));
+      // Response is a ReadableStream of the PNG image
+      const imageBuffer = await new Response(response).arrayBuffer();
+      const timestamp = Date.now();
+      const filename = `${timestamp}.png`;
 
-      if (!hfToolsExist) {
-        // Connect to HuggingFace MCP
-        console.log("[MCP] Connecting to HuggingFace MCP server...");
+      // Determine bucket and path based on purpose
+      let bucket: R2Bucket;
+      let imagePath: string;
+      let bucketName: string;
 
-        const mcpUrl = env.HUGGINGFACE_API_KEY
-          ? `https://huggingface.co/mcp`
-          : `https://huggingface.co/mcp?login`;
+      if (purpose === 'social' || purpose === 'blog') {
+        // Use IMAGES bucket (kiamichi-biz-images) for social/blog content
+        bucket = env.IMAGES!;
+        bucketName = 'kiamichi-biz-images';
+        imagePath = businessId
+          ? `${purpose}/${businessId}/${filename}`
+          : `${purpose}/${filename}`;
+      } else {
+        // Use BUSINESS_IMAGES bucket for business listing images
+        bucket = env.BUSINESS_IMAGES!;
+        bucketName = 'kiamichi-business-images';
+        const category = purpose.replace('business-', ''); // hero, gallery, logo
+        imagePath = `businesses/${businessId}/${category}/${filename}`;
+      }
 
-        try {
-          await agent!.addMcpServer("huggingface", mcpUrl);
-          console.log("[MCP] Successfully connected to HuggingFace");
-        } catch (mcpError) {
-          console.error("[MCP] Failed to connect to HuggingFace:", mcpError);
-          return `Failed to connect to HuggingFace MCP. Please ensure you're authenticated. Visit https://huggingface.co/mcp?login to authorize.`;
+      if (!bucket) {
+        throw new Error(`R2 bucket not configured for purpose: ${purpose}`);
+      }
+
+      // Upload to R2
+      await bucket.put(imagePath, imageBuffer, {
+        httpMetadata: {
+          contentType: 'image/png'
+        },
+        customMetadata: {
+          purpose: purpose,
+          businessId: businessId?.toString() || '',
+          prompt: prompt.substring(0, 500), // Truncate long prompts
+          generatedAt: new Date().toISOString()
         }
-      }
+      });
 
-      // Map model names to HuggingFace model IDs
-      const modelMap: Record<string, string> = {
-        "flux-lora": "prithivMLmods/FLUX-LoRA-DLC",
-        "stable-diffusion": "stabilityai/stable-diffusion-xl-base-1.0",
-        "dall-e": "openai/dall-e-3"
+      // Construct S3 API URL
+      const s3Url = `https://ff3c5e2beaea9f85fee3200bfe28da16.r2.cloudflarestorage.com/${bucketName}/${imagePath}`;
+
+      console.log(`[AI] Image generated and stored at: ${imagePath}`);
+
+      return {
+        success: true,
+        imageUrl: s3Url,
+        path: imagePath,
+        bucket: bucketName,
+        purpose: purpose,
+        dimensions: { width: Math.min(width, 1024), height: Math.min(height, 1024) },
+        size: imageBuffer.byteLength,
+        message: `Image generated successfully! You can view it at: ${s3Url}`
       };
-
-      const modelId = modelMap[model] || modelMap["flux-lora"];
-
-      // Generate image via MCP tools
-      // The actual MCP tool call would depend on the HuggingFace MCP server's API
-      // For now, we'll simulate the call and prepare for R2 storage
-
-      console.log(`[MCP] Image generation request sent for model: ${modelId}`);
-
-      // TODO: Actual MCP tool invocation would go here
-      // For now, return a placeholder response explaining the setup
-      let response = `**Image Generation Requested**\n\n`;
-      response += `- **Prompt**: ${prompt}\n`;
-      response += `- **Model**: ${modelId}\n`;
-      response += `- **Dimensions**: ${width}x${height}px\n`;
-
-      if (businessId) {
-        response += `- **Business ID**: ${businessId}\n`;
-        response += `- **Storage**: Will be saved to R2 bucket (kiamichi-biz-images)\n`;
-      }
-
-      response += `\n**Next Steps**: The HuggingFace MCP server will generate the image. Once complete, it will be stored in R2 and a public URL will be provided.`;
-
-      // If we had the actual image data, we would store it in R2:
-      // if (businessId && env.IMAGES) {
-      //   const imageKey = `businesses/${businessId}/generated/${Date.now()}.png`;
-      //   await env.IMAGES.put(imageKey, imageBuffer);
-      //   const imageUrl = `https://images.kiamichibizconnect.com/${imageKey}`;
-      //   response += `\n\n**Image URL**: ${imageUrl}`;
-      // }
-
-      return response;
     } catch (error) {
       console.error("Error generating image:", error);
-      return `Error generating image: ${error}`;
+      return {
+        success: false,
+        error: `Failed to generate image: ${error}`
+      };
     }
   }
 };

@@ -1,7 +1,9 @@
 export interface Env {
   DB: D1Database;
-  IMAGES: R2Bucket;
-  TEMPLATES: R2Bucket;
+  IMAGES: R2Bucket; // kiamichi-biz-images - AI-generated social/blog content
+  BUSINESS_IMAGES: R2Bucket; // kiamichi-business-images - User-generated business listing images
+  BUSINESS_ASSETS: R2Bucket; // kiamichi-business-assets - Published static HTML pages
+  TEMPLATES: R2Bucket; // kiamichi-component-templates - Page component templates
   CACHE: KVNamespace;
   AI: Ai; // Includes Workers AI and AI Search (autorag)
   ANALYZER: Fetcher; // Service binding to analyzer worker
