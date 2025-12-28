@@ -25,13 +25,14 @@ export function parseSessionCookie(cookieHeader: string | null): string | null {
     return null;
   }
 
-  // Extract portal_session cookie
-  const sessionMatch = cookieHeader.match(/portal_session=([^;]+)/);
+  // Extract admin_session cookie (used by main worker)
+  const sessionMatch = cookieHeader.match(/admin_session=([^;]+)/);
   return sessionMatch ? sessionMatch[1] : null;
 }
 
 /**
  * Verify session and get session info
+ * Note: admin_sessions table uses user_email as the owner identifier
  */
 export async function verifySession(
   sessionId: string,
@@ -41,8 +42,8 @@ export async function verifySession(
     const session = await db
       .prepare(
         `
-        SELECT id, owner_id, expires_at, last_activity
-        FROM portal_sessions
+        SELECT id, user_email, expires_at, last_activity
+        FROM admin_sessions
         WHERE id = ?
       `
       )
@@ -61,7 +62,7 @@ export async function verifySession(
 
     return {
       sessionId: session.id as string,
-      ownerId: session.owner_id as string,
+      ownerId: session.user_email as string, // Use email as owner ID
       expiresAt: session.expires_at as number | null,
       lastActivity: session.last_activity as number | null
     };
@@ -73,9 +74,10 @@ export async function verifySession(
 
 /**
  * Get verified businesses for an owner
+ * Note: ownerId is the user's email from admin_sessions.user_email
  */
 export async function getOwnerBusinesses(
-  ownerId: string,
+  ownerEmail: string,
   db: D1Database
 ): Promise<BusinessOwnership[]> {
   try {
@@ -87,13 +89,14 @@ export async function getOwnerBusinesses(
           bo.claim_status,
           b.name as business_name,
           b.slug as business_slug
-        FROM business_ownership bo
+        FROM business_owners bo_table
+        JOIN business_ownership bo ON bo.owner_id = bo_table.id
         JOIN businesses b ON bo.business_id = b.id
-        WHERE bo.owner_id = ? AND bo.claim_status = 'verified'
+        WHERE bo_table.email = ? AND bo.claim_status = 'verified'
         ORDER BY b.name ASC
       `
       )
-      .bind(ownerId)
+      .bind(ownerEmail)
       .all();
 
     if (!results || results.length === 0) {
