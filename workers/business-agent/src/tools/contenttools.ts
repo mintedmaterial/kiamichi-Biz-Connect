@@ -258,16 +258,24 @@ Format: JSON with fields "title", "content" (HTML), "metaDescription" (max 160 c
 
       console.log(`[AI] Image generated and stored at: ${imagePath}`);
 
-      return {
-        success: true,
-        imageUrl: s3Url,
-        path: imagePath,
-        bucket: bucketName,
-        purpose: purpose,
-        dimensions: { width: Math.min(width, 1024), height: Math.min(height, 1024) },
-        size: imageBuffer.byteLength,
-        message: `Image generated successfully! You can view it at: ${s3Url}`
-      };
+      // Return markdown-formatted message for chat display
+      const imageMarkdown = `![Generated Image](${s3Url})`;
+      const details = `
+**Image Generated Successfully!**
+
+${imageMarkdown}
+
+📁 **Storage Details:**
+- **Bucket**: ${bucketName}
+- **Path**: ${imagePath}
+- **Purpose**: ${purpose}
+- **Dimensions**: ${Math.min(width, 1024)}x${Math.min(height, 1024)}px
+- **Size**: ${(imageBuffer.byteLength / 1024).toFixed(2)} KB
+
+🔗 **Direct URL**: ${s3Url}
+`;
+
+      return details;
     } catch (error) {
       console.error("Error generating image:", error);
       return {

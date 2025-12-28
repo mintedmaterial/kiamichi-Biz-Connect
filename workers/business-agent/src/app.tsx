@@ -50,6 +50,7 @@ export default function Chat() {
   const [previewKey, setPreviewKey] = useState(0);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [showMobilePreview, setShowMobilePreview] = useState(false); // Mobile preview toggle
 
   // Voice agent state
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
@@ -490,7 +491,7 @@ export default function Chat() {
       {/* Split-screen layout */}
       <div className="flex w-full h-full">
         {/* Left pane: Chat interface */}
-        <div className="w-full lg:w-1/2 flex flex-col border-r border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+        <div className={`${showMobilePreview ? 'hidden' : 'flex'} lg:flex w-full lg:w-1/2 flex-col border-r border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900`}>
           {/* Chat Header */}
           <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center gap-3 sticky top-0 z-10 bg-white dark:bg-neutral-900">
           <div className="flex items-center justify-center h-8 w-8">
@@ -517,16 +518,29 @@ export default function Chat() {
           </div>
 
           <div className="flex items-center gap-2 mr-2">
-            <BugIcon size={16} />
+            {/* Mobile preview toggle button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="lg:hidden"
+              onClick={() => setShowMobilePreview(!showMobilePreview)}
+              aria-label="Toggle preview"
+            >
+              {showMobilePreview ? "Chat" : "Preview"}
+            </Button>
+
+            <BugIcon size={16} className="hidden md:block" />
             <Toggle
               toggled={showDebug}
               aria-label="Toggle debug mode"
               onClick={() => setShowDebug((prev) => !prev)}
+              className="hidden md:block"
             />
           </div>
 
           <Button
             variant="ghost"
+            className="hidden md:block"
             size="md"
             shape="square"
             className="rounded-full h-9 w-9"
@@ -817,7 +831,7 @@ export default function Chat() {
         </div>
 
         {/* Right pane: Preview */}
-        <div className="hidden lg:flex w-1/2 bg-neutral-50 dark:bg-neutral-950">
+        <div className={`${showMobilePreview ? 'flex' : 'hidden'} lg:flex w-full lg:w-1/2 bg-neutral-50 dark:bg-neutral-950`}>
           <PreviewPane
             businessId={businessId}
             previewKey={previewKey}
