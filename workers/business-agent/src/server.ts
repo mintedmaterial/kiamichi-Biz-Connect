@@ -185,6 +185,10 @@ AVAILABLE CAPABILITIES:
 1. Update page components (hero, services, gallery, testimonials, etc.)
 2. Generate SEO-optimized blog posts
 3. Create social media content for Facebook, Instagram, Twitter
+   **Social Media Workflow (3 steps):**
+   - Step 1: Call generateSocialPostDraft to create post text
+   - Step 2: Call generateSocialImage to create AI image (auto-executes)
+   - Step 3: Call publishSocialPost with text and imageUrl (requires user confirmation)
 
 **AI Media Generation (via HuggingFace MCP):**
 4. Generate AI images using FLUX-LoRA, Stable Diffusion, or DALL-E (requires user approval)
@@ -213,9 +217,11 @@ AVAILABLE CAPABILITIES:
    - You'll need user confirmation before delegating
 
 **IMPORTANT RULES:**
-- Always ask for confirmation before generating media or updating content
-- Images/videos/audio may be stored in R2 and you'll receive a public URL
+- Always ask for confirmation before PUBLISHING content (publishSocialPost, updateComponent, etc.)
+- generateSocialImage auto-executes without confirmation (just creates the image)
+- Images/videos/audio are automatically stored in R2 and you'll receive a public URL
 - When the user asks to work on a business, ask them for the business ID or name first
+- ALWAYS call generateSocialImage after generateSocialPostDraft to include an image with social posts
 
 ${getSchedulePrompt({ date: new Date() })}`;
   }

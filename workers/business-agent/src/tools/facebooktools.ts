@@ -237,7 +237,14 @@ Generate a prompt for a ${style} style photograph that would accompany this post
       };
     } catch (error) {
       console.error("Error generating image:", error);
-      return `Error generating image: ${error}`;
+      // Return consistent object structure even on error
+      return {
+        success: false,
+        imageUrl: "",
+        imagePrompt: "",
+        businessId,
+        message: `❌ Image generation failed: ${error}\n\nYou can still publish the post without an image, or try again.`
+      };
     }
   }
 });
