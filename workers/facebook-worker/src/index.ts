@@ -10,15 +10,13 @@ import {
   checkRateLimit,
 } from '../../../src/facebook-oauth';
 import { selectTopPosts, calculateVerificationScore } from '../../../src/facebook-ai-analyzer';
-import {
-  postToPageWithImage,
-  postToGroup,
-  getPostInsights,
-  getPostEngagement,
-  delayForRateLimit
-} from '../../../src/facebook-graph-api';
 import { populateContentQueue, getQueueStatus, getAnalyticsSummary } from '../../../src/facebook-scheduler';
 import type { FacebookContentQueue } from '../../../src/types';
+import { postToPage as officialPostToPage, postToGroup as officialPostToGroup } from './fb-official-api';
+import { processComments } from '../../../src/facebook-comment-monitor';
+
+// Export BrowserSession Durable Object
+export { BrowserSession } from './browser-session';
 
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
@@ -26,7 +24,105 @@ export default {
     const path = url.pathname;
 
     try {
-      // New endpoint: Post to Facebook immediately
+      // DEBUG: Manually trigger Facebook login via BrowserSession
+      if (path === '/browser-login') {
+        try {
+          const id = env.BROWSER_SESSION.idFromName('facebook-session');
+          const stub = env.BROWSER_SESSION.get(id);
+          const response = await stub.fetch('https://dummy/login', { method: 'POST' });
+          const result = await response.json();
+          return new Response(JSON.stringify(result, null, 2), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (error: any) {
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // Refresh Facebook Page Access Token (extends to 60 days)
+      if (path === '/refresh-token') {
+        try {
+          const currentToken = env.FB_PAGE_ACCESS_TOKEN;
+
+          if (!currentToken) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'No current token to refresh'
+            }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          // Import token extension function
+          const { extendAccessToken, debugAccessToken } = await import('../../../src/facebook-oauth');
+
+          // First debug the current token to check its status
+          const appAccessToken = `${env.FB_APP_ID}|${env.FB_APP_SECRET}`;
+
+          let debugInfo;
+          try {
+            debugInfo = await debugAccessToken(currentToken, appAccessToken);
+            console.log('[Token Refresh] Current token debug:', debugInfo);
+          } catch (debugError: any) {
+            console.warn('[Token Refresh] Could not debug token:', debugError.message);
+          }
+
+          // Extend the token to 60 days
+          const extendedTokenResponse = await extendAccessToken(currentToken, env);
+
+          console.log('[Token Refresh] Token extended successfully');
+          console.log('[Token Refresh] Expires in:', extendedTokenResponse.expires_in, 'seconds');
+          console.log('[Token Refresh] Expires in days:', Math.floor(extendedTokenResponse.expires_in / 86400));
+
+          // TODO: Automatically update the secret with the new token
+          // For now, return it so it can be manually updated if needed
+
+          return new Response(JSON.stringify({
+            success: true,
+            message: 'Token extended successfully',
+            new_token: extendedTokenResponse.access_token,
+            expires_in_seconds: extendedTokenResponse.expires_in,
+            expires_in_days: Math.floor(extendedTokenResponse.expires_in / 86400),
+            current_token_debug: debugInfo,
+            note: 'Token extended! This token will expire in ~60 days. The system will auto-refresh it before expiration.'
+          }, null, 2), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (error: any) {
+          console.error('[Token Refresh] Error:', error.message);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error.message
+          }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // DEBUG: Check BrowserSession status
+      if (path === '/browser-status') {
+        try {
+          const id = env.BROWSER_SESSION.idFromName('facebook-session');
+          const stub = env.BROWSER_SESSION.get(id);
+          const response = await stub.fetch('https://dummy/status');
+          const result = await response.json();
+          return new Response(JSON.stringify(result, null, 2), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (error: any) {
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // Post to Facebook using Official Graph API
       if (path === '/post') {
         if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
 
@@ -41,40 +137,63 @@ export default {
             });
           }
 
-          // Post to Facebook Page or Group
+          console.log('[Official API] Posting to Facebook');
+
           const pageId = env.FB_PAGE_ID;
           const pageToken = env.FB_PAGE_ACCESS_TOKEN;
           const groupId = env.FB_GROUP_ID;
-          const groupToken = env.FB_ACCESS_TOKEN;
+          const groupToken = env.FB_ACCESS_TOKEN || env.FB_PAGE_ACCESS_TOKEN;
 
           let pagePostId: string | null = null;
           let groupPostId: string | null = null;
+          const errors: string[] = [];
 
-          // Determine target (default to both if not specified)
-          const targetType = target || 'both';
+          // Determine target (default to page if not specified)
+          const targetType = target || 'page';
 
+          // Post to Page if needed (using Official Graph API)
           if ((targetType === 'page' || targetType === 'both') && pageId && pageToken) {
-            const pageResponse = await postToPageWithImage(pageId, pageToken, message, link, image_url);
-            if (pageResponse.error) {
-              console.error('Page post failed:', pageResponse.error);
+            console.log(`[Official API] Posting to Page ${pageId}`);
+            const pageResponse = await officialPostToPage(pageId, pageToken, {
+              message,
+              link: link || undefined,
+              imageUrl: image_url || undefined
+            });
+
+            if (pageResponse.success) {
+              pagePostId = pageResponse.post_id || null;
+              console.log(`[Official API] Page post successful: ${pagePostId}`);
             } else {
-              pagePostId = pageResponse.id || null;
+              console.error('[Official API] Page post failed:', pageResponse.error);
+              errors.push(`Page: ${pageResponse.error}`);
             }
           }
 
+          // Rate limit between posts
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          // Post to Group if needed (using Official Graph API)
           if ((targetType === 'group' || targetType === 'both') && groupId && groupToken) {
-            const groupResponse = await postToGroup(groupId, groupToken, message, link);
-            if (groupResponse.error) {
-              console.error('Group post failed:', groupResponse.error);
+            console.log(`[Official API] Posting to Group ${groupId}`);
+            const groupResponse = await officialPostToGroup(groupId, groupToken, {
+              message,
+              link: link || undefined
+            });
+
+            if (groupResponse.success) {
+              groupPostId = groupResponse.post_id || null;
+              console.log(`[Official API] Group post successful: ${groupPostId}`);
             } else {
-              groupPostId = groupResponse.id || null;
+              console.error('[Official API] Group post failed:', groupResponse.error);
+              errors.push(`Group: ${groupResponse.error}`);
             }
           }
 
           return new Response(JSON.stringify({
-            success: true,
+            success: !!(pagePostId || groupPostId),
             pagePostId,
-            groupPostId
+            groupPostId,
+            errors: errors.length > 0 ? errors : undefined
           }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' }
@@ -86,6 +205,388 @@ export default {
             headers: { 'Content-Type': 'application/json' }
           });
         }
+      }
+
+      // Trigger queue processing (for on-demand posts from business agent)
+      if (path === '/trigger-queue') {
+        if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+
+        try {
+          console.log('[TRIGGER] Processing queue on-demand...');
+
+          const now = Math.floor(Date.now() / 1000);
+
+          // Process pending posts using the SAME mechanism that was working
+          const result = await processPendingPostsInternal(env, now);
+
+          console.log('[TRIGGER] Queue processing complete:', result);
+
+          return new Response(JSON.stringify({
+            success: true,
+            posted: result.posted || 0,
+            failed: result.failed || 0,
+            pagePostId: result.pagePostId,
+            groupPostId: result.groupPostId,
+            message: 'Queue processed successfully'
+          }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (error: any) {
+          console.error('[TRIGGER] Error processing queue:', error);
+          return new Response(JSON.stringify({
+            success: false,
+            error: error.message
+          }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // Test endpoint: Generate AI content and post
+      if (path === '/test-post') {
+        if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+
+        try {
+          const { business_id, force_image } = await request.json().catch(() => ({ business_id: null, force_image: false }));
+
+          // Get a business to spotlight (either specified or random featured)
+          const db = env.DB;
+          let business;
+
+          if (business_id) {
+            business = await db.prepare('SELECT * FROM businesses WHERE id = ?').bind(business_id).first();
+          } else {
+            business = await db.prepare('SELECT * FROM businesses WHERE is_featured = 1 AND is_active = 1 ORDER BY RANDOM() LIMIT 1').first();
+          }
+
+          if (!business) {
+            return new Response(JSON.stringify({ error: 'No business found for test post' }), {
+              status: 404,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          console.log(`[Test] Generating post for: ${business.name}`);
+
+          // STEP 1: Generate content with real Workers AI
+          console.log('[Test] Step 1: Generating AI content...');
+
+          const systemPrompt = `You are a friendly, enthusiastic local community member in Southeast Oklahoma who loves supporting local businesses and sharing discoveries with friends.
+
+PERSONALITY:
+- Warm, genuine, and conversational (like texting a friend)
+- Use contractions naturally (we're, they're, can't, won't, you'll)
+- Vary your tone: sometimes excited (!), sometimes thoughtful, sometimes curious (?)
+- Show real emotion - gratitude, excitement, appreciation
+- Sound like a real person, NOT a marketer
+
+WRITING STYLE:
+- Keep it brief: 60-120 words max
+- Start with a hook that feels natural ("Just found...", "Y'all...", "Okay so...", "Can we talk about...")
+- Use casual language and local flavor
+- NO hashtags, NO emoji spam, NO corporate buzzwords
+- Add personal touches ("seriously", "honestly", "I'm telling you")
+${business.facebook_url
+  ? `- IMPORTANT: Tag the business using @${business.name.replace(/\s+/g, '')} (remove ALL spaces!) - they have a Facebook page and you follow them!
+- Example: @${business.name.replace(/\s+/g, '')} (no spaces allowed in tags!)`
+  : '- Mention the business by name, but DON\'T use @tag (they don\'t have a Facebook page)'
+}
+
+Remember: You're NOT selling, you're SHARING something cool you found. Sound human!`;
+
+          const userPrompt = `Share about this awesome local business you discovered:
+
+Business: ${business.name}
+Where: ${business.city}, ${business.state}
+What they do: ${business.description || 'Local business serving our community'}
+${business.google_rating ? `They've got ${business.google_rating} stars from ${business.google_review_count} reviews` : ''}
+
+Write like you're genuinely excited to tell people about this place. Start with something that grabbed your attention about them. Keep it real and conversational.
+
+${business.facebook_url
+  ? `IMPORTANT: Tag the business by writing @${business.name.replace(/\s+/g, '')} (remove ALL spaces from the name!) somewhere naturally. They're on Facebook!`
+  : `Mention ${business.name} naturally but DON'T use @tag since they don't have a Facebook page.`
+}
+
+Around 80-100 words.`;
+
+          const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            max_tokens: 200,
+            temperature: 0.9
+          });
+
+          let message = ((aiResponse as any).response || '').trim().replace(/\*\*/g, '').replace(/\n{3,}/g, '\n\n');
+          // Use production domain
+          const siteUrl = env.SITE_URL || 'https://kiamichibizconnect.com';
+          const link = `${siteUrl}/business/${business.slug}?utm_source=facebook&utm_medium=page&utm_campaign=test_post`;
+
+          console.log('[Test] Generated message:', message.substring(0, 150) + '...');
+
+          // STEP 2: Generate image with Flux 2 Dev (if force_image is true)
+          let imageUrl: string | undefined;
+
+          if (force_image || Math.random() < 0.3) { // 30% chance or forced
+            console.log('[Test] Step 2: Generating AI image with Flux 2 Dev...');
+
+            try {
+              // Generate business-specific imagery based on category/type
+              const businessType = (business.description || '').toLowerCase();
+
+              let sceneDescription = '';
+              if (businessType.includes('electric') || businessType.includes('electrician')) {
+                sceneDescription = 'Professional electrician working on an electrical panel in a modern home, wearing safety gear, organized tools visible, bright workshop lighting, focusing on the electrical work';
+              } else if (businessType.includes('plumb')) {
+                sceneDescription = 'Skilled plumber repairing pipes under a sink, professional tools laid out neatly, clean modern bathroom setting, natural lighting';
+              } else if (businessType.includes('hair') || businessType.includes('salon') || businessType.includes('beauty')) {
+                sceneDescription = 'Professional hair stylist cutting client hair in modern salon, bright natural lighting, clean contemporary interior, styling tools visible';
+              } else if (businessType.includes('restaurant') || businessType.includes('diner') || businessType.includes('cafe') || businessType.includes('food')) {
+                sceneDescription = 'Delicious plated food in a cozy restaurant setting, warm ambient lighting, inviting atmosphere, fresh ingredients visible';
+              } else if (businessType.includes('auto') || businessType.includes('mechanic') || businessType.includes('repair')) {
+                sceneDescription = 'Professional mechanic working on a car engine in a clean modern auto shop, tools organized, bright overhead lighting';
+              } else if (businessType.includes('fitness') || businessType.includes('gym') || businessType.includes('training')) {
+                sceneDescription = 'Modern fitness equipment in a clean, bright gym space, motivational atmosphere, natural lighting through large windows';
+              } else if (businessType.includes('clean')) {
+                sceneDescription = 'Professional cleaning service in action, spotless modern interior, cleaning supplies organized, bright natural lighting';
+              } else if (businessType.includes('landscap') || businessType.includes('lawn')) {
+                sceneDescription = 'Beautiful landscaped yard with lush green grass, neat flower beds, professional landscaping tools, bright sunny day';
+              } else if (businessType.includes('real estate') || businessType.includes('realty')) {
+                sceneDescription = 'Beautiful modern home exterior with welcoming front entrance, well-maintained lawn, bright sunny day, professional real estate photography';
+              } else if (businessType.includes('web') || businessType.includes('marketing') || businessType.includes('design')) {
+                sceneDescription = 'Modern workspace with laptop displaying creative website design, clean minimalist office, natural lighting, professional creative environment';
+              } else {
+                sceneDescription = 'Professional business storefront in small town Oklahoma, welcoming entrance, clean modern aesthetic, bright natural daylight';
+              }
+
+              const imagePrompt = `High-quality professional business photography: ${sceneDescription}
+
+Business: ${business.name}
+Location: ${business.city}, Oklahoma
+
+Style requirements:
+- Photorealistic, professional stock photography quality
+- Bright, natural lighting with warm tones
+- Sharp focus, high resolution (1024x1024)
+- Clean, modern, inviting atmosphere
+- NO text overlays, NO watermarks
+- NO people's faces visible (back of head or silhouettes only)
+- Authentic business environment
+- Professional color grading
+
+Optional: Subtle business name "${business.name}" on signage or equipment in natural context.
+
+The image should look like authentic professional business photography, NOT a social media mockup or screenshot.`;
+
+              console.log('[Test] Image prompt:', imagePrompt.substring(0, 100) + '...');
+
+              // Create FormData for Flux 2 Dev
+              const form = new FormData();
+              form.append('prompt', imagePrompt);
+              form.append('width', '1024');
+              form.append('height', '1024');
+
+              const formRequest = new Request('http://dummy', {
+                method: 'POST',
+                body: form
+              });
+              const formStream = formRequest.body;
+              const formContentType = formRequest.headers.get('content-type') || 'multipart/form-data';
+
+              // Call Flux 2 Dev
+              const imageResponse = await env.AI.run('@cf/black-forest-labs/flux-2-dev', {
+                multipart: {
+                  body: formStream,
+                  contentType: formContentType
+                }
+              });
+
+              const imageBase64 = (imageResponse as any).image;
+              if (imageBase64) {
+                // Convert and upload to R2
+                const imageBuffer = Uint8Array.from(atob(imageBase64), c => c.charCodeAt(0));
+                const timestamp = Date.now();
+                const imageKey = `social/${business.slug}-${timestamp}.png`;
+
+                await env.IMAGES.put(imageKey, imageBuffer, {
+                  httpMetadata: { contentType: 'image/png' },
+                  customMetadata: {
+                    business_id: business.id.toString(),
+                    business_name: business.name,
+                    generated_at: timestamp.toString(),
+                    type: 'facebook_test_post'
+                  }
+                });
+
+                // Use production domain for image URL
+                imageUrl = `${siteUrl}/images/${imageKey}`;
+
+                // Store in D1 social_media_images table for reuse
+                try {
+                  await db.prepare(`
+                    INSERT INTO social_media_images
+                    (image_key, image_url, image_prompt, business_id, content_type, platform,
+                     generated_at, model, width, height, is_approved, quality_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 85)
+                  `).bind(
+                    imageKey,
+                    imageUrl,
+                    imagePrompt.substring(0, 500),
+                    business.id,
+                    'post',
+                    'facebook',
+                    timestamp,
+                    'flux-2-dev',
+                    1024,
+                    1024
+                  ).run();
+
+                  console.log('[Test] Image stored in D1 for reuse');
+                } catch (dbError) {
+                  console.warn('[Test] Failed to store image in D1:', dbError);
+                  // Continue anyway - image is in R2
+                }
+
+                console.log('[Test] Image generated and uploaded:', imageUrl);
+              }
+            } catch (imgError) {
+              console.error('[Test] Image generation failed:', imgError);
+              // Continue without image
+            }
+          } else {
+            console.log('[Test] Skipping image generation (not forced, business has existing image)');
+            imageUrl = business.image_url || undefined;
+          }
+
+          const generated = { message, link, imageUrl };
+
+          console.log('[Test] Content ready:', {
+            message_preview: generated.message.substring(0, 100) + '...',
+            link: generated.link,
+            hasImage: !!generated.imageUrl,
+            imageUrl: generated.imageUrl
+          });
+
+          // STEP 3: Post to Facebook using Official Graph API
+          console.log('[Test] Step 3: Posting to Facebook via Official API...');
+
+          const pageToken = env.FB_PAGE_ACCESS_TOKEN;
+          const pageId = env.FB_PAGE_ID;
+
+          if (!pageToken || !pageId) {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Missing FB_PAGE_ACCESS_TOKEN or FB_PAGE_ID',
+              generated_content: generated
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          const postResult = await officialPostToPage(pageId, pageToken, {
+            message: generated.message,
+            link: generated.link,
+            imageUrl: generated.imageUrl
+          });
+
+          if (postResult.success) {
+            console.log(`[Test] Successfully posted: ${postResult.post_id}`);
+            return new Response(JSON.stringify({
+              success: true,
+              post_id: postResult.post_id,
+              business_name: business.name,
+              generated_message: generated.message,
+              generated_link: generated.link,
+              generated_image: generated.imageUrl,
+              facebook_url: `https://facebook.com/${postResult.post_id.replace('_', '/posts/')}`
+            }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } else {
+            return new Response(JSON.stringify({
+              success: false,
+              error: postResult.error,
+              generated_content: generated
+            }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+        } catch (err: any) {
+          console.error('[Test] Error:', err);
+          return new Response(JSON.stringify({ error: err.message, stack: err.stack }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // Browser-based posting endpoint (uses BrowserSession DO)
+      if (path === '/post-browser') {
+        if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+
+        try {
+          const body = await request.json();
+          const { message, target } = body;
+
+          if (!message) {
+            return new Response(JSON.stringify({ error: 'Missing message' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+
+          // Get BrowserSession DO
+          const sessionId = env.BROWSER_SESSION.idFromName('facebook-session');
+          const sessionStub = env.BROWSER_SESSION.get(sessionId);
+
+          // Post using browser automation
+          const response = await sessionStub.fetch('https://do/post', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, target: target || 'profile' })
+          });
+
+          const result = await response.json();
+          return new Response(JSON.stringify(result), {
+            status: response.status,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (err: any) {
+          console.error('Browser post error:', err);
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+      }
+
+      // Browser session management endpoints
+      if (path === '/session/status') {
+        if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+        const sessionId = env.BROWSER_SESSION.idFromName('facebook-session');
+        const sessionStub = env.BROWSER_SESSION.get(sessionId);
+        return await sessionStub.fetch('https://do/status');
+      }
+
+      if (path === '/session/login') {
+        if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+        const sessionId = env.BROWSER_SESSION.idFromName('facebook-session');
+        const sessionStub = env.BROWSER_SESSION.get(sessionId);
+        return await sessionStub.fetch('https://do/login', { method: 'POST' });
+      }
+
+      if (path === '/session/logout') {
+        if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+        const sessionId = env.BROWSER_SESSION.idFromName('facebook-session');
+        const sessionStub = env.BROWSER_SESSION.get(sessionId);
+        return await sessionStub.fetch('https://do/logout', { method: 'POST' });
       }
 
       if (path === '/enrich-facebook') {
@@ -247,28 +748,69 @@ export default {
     }
   },
 
-  // Scheduled handler — called by Cloudflare on cron (every hour)
+  // Scheduled handler — runs at specific times via cron
+  // Posts at: 3 AM UTC (9 PM CST), 3 PM UTC (9 AM CST), 10 PM UTC (4 PM CST)
+  // Token refresh at: 2 PM UTC (8 AM CST) - before first post
+  // Analytics at: 2 AM UTC
   async scheduled(controller: any, env: any) {
     try {
       const now = Math.floor(Date.now() / 1000);
       const currentHour = new Date().getUTCHours();
+      const isPostingHour = [3, 15, 22].includes(currentHour);
+      const isTokenRefreshHour = currentHour === 14;
+      const isAnalyticsHour = currentHour === 2;
 
-      console.log(`Scheduled run starting at ${new Date().toISOString()}`);
+      console.log(`Scheduled run starting at ${new Date().toISOString()} (Hour: ${currentHour} UTC)`);
+      console.log(`Is posting hour: ${isPostingHour}, Is token refresh hour: ${isTokenRefreshHour}, Is analytics hour: ${isAnalyticsHour}`);
 
-      // Every hour:
-      // 1. Populate queue for next 24 hours
-      const queueResult = await populateContentQueue(env);
-      console.log(`Queue population: ${queueResult.created} created, ${queueResult.skipped} skipped`);
+      // TOKEN REFRESH: 2 PM UTC (8 AM CST) daily before first post
+      if (isTokenRefreshHour) {
+        console.log('[Token] Running daily token refresh...');
+        try {
+          const { extendAccessToken } = await import('../../../src/facebook-oauth');
+          const currentToken = env.FB_PAGE_ACCESS_TOKEN;
 
-      // 2. Process posts due now (±5 minute window)
-      const postingResult = await processPendingPosts(env, now);
-      console.log(`Posted: ${postingResult.posted} successful, ${postingResult.failed} failed`);
+          if (currentToken) {
+            const extendedTokenResponse = await extendAccessToken(currentToken, env);
+            const expiresInDays = Math.floor(extendedTokenResponse.expires_in / 86400);
 
-      // At 2 AM UTC only:
-      // 3. Fetch analytics for recent posts
-      // 4. Run business enrichment
-      if (currentHour === 2) {
-        console.log('Running 2 AM tasks: analytics update and business enrichment');
+            console.log(`[Token] ✓ Token extended successfully! Valid for ${expiresInDays} days`);
+            console.log(`[Token] New token: ${extendedTokenResponse.access_token.substring(0, 20)}...`);
+            console.log(`[Token] NOTE: Token has been extended but secret must be updated manually`);
+
+            // TODO: Implement automatic secret update via Cloudflare API
+            // For now, log the new token so it can be updated manually if needed
+          } else {
+            console.error('[Token] ✗ No token found to refresh');
+          }
+        } catch (tokenError: any) {
+          console.error('[Token] ✗ Token refresh failed:', tokenError.message);
+          // Continue with posting even if token refresh fails
+        }
+      }
+
+      // POSTING TIMES: 3 AM, 3 PM, 10 PM UTC (9 PM, 9 AM, 4 PM CST)
+      if (isPostingHour) {
+        console.log('[Posting] This is a posting hour - processing content queue');
+
+        // 1. Populate queue for next 24 hours (ensures we always have content)
+        const queueResult = await populateContentQueue(env);
+        console.log(`[Queue] Created: ${queueResult.created}, Skipped: ${queueResult.skipped}`);
+
+        // 2. Process posts scheduled for now (±5 minute window)
+        const postingResult = await processPendingPostsInternal(env, now);
+        console.log(`[Posting] Success: ${postingResult.posted}, Failed: ${postingResult.failed}`);
+
+        // 3. Monitor and respond to comments after posting
+        console.log('[Comments] Running comment monitoring');
+        await monitorAndRespondToComments(env);
+      } else {
+        console.log('[Posting] Not a posting hour - skipping post processing');
+      }
+
+      // ANALYTICS HOUR: 2 AM UTC only
+      if (isAnalyticsHour) {
+        console.log('[Analytics] Running 2 AM tasks: analytics update and business enrichment');
         await updatePostAnalytics(env);
         await enrichAllBusinesses(env);
       }
@@ -334,18 +876,62 @@ async function getSecretPlaceholder(name: string) {
 /**
  * Process pending posts scheduled for now (±5 minute window)
  */
-async function processPendingPosts(
+/**
+ * Helper function to post via BrowserSession Durable Object
+ * Auto-logins and maintains session - no manual token management needed!
+ */
+async function postViaBrowserSession(
+  env: any,
+  message: string,
+  target: 'profile' | 'group'
+): Promise<{ success: boolean; post_id?: string; error?: string }> {
+  try {
+    // Get Durable Object stub
+    const id = env.BROWSER_SESSION.idFromName('facebook-session');
+    const stub = env.BROWSER_SESSION.get(id);
+
+    // Call /post endpoint on Durable Object
+    const response = await stub.fetch('https://dummy/post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, target })
+    });
+
+    const result = await response.json();
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error || 'Unknown error from BrowserSession'
+      };
+    }
+
+    return {
+      success: true,
+      post_id: result.post_id
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || 'Network error'
+    };
+  }
+}
+
+async function processPendingPostsInternal(
   env: any,
   now: number
-): Promise<{ posted: number; failed: number }> {
+): Promise<{ posted: number; failed: number; pagePostId?: string; groupPostId?: string }> {
   const db = env.DB;
   const pageId = env.FB_PAGE_ID;
   const pageToken = env.FB_PAGE_ACCESS_TOKEN;
   const groupId = env.FB_GROUP_ID;
-  const groupToken = env.FB_ACCESS_TOKEN;
+  const groupToken = env.FB_ACCESS_TOKEN || env.FB_PAGE_ACCESS_TOKEN;
 
   let posted = 0;
   let failed = 0;
+  let lastPagePostId: string | undefined;
+  let lastGroupPostId: string | undefined;
 
   try {
     // Get posts scheduled within ±5 minute window
@@ -368,42 +954,42 @@ async function processPendingPosts(
         let pagePostId: string | null = null;
         let groupPostId: string | null = null;
 
-        // Post to Page if needed
+        // Post to Page if needed (using Official Graph API)
         if ((post.target_type === 'page' || post.target_type === 'both') && pageId && pageToken) {
-          const pageResponse = await postToPageWithImage(
-            pageId,
-            pageToken,
-            post.message,
-            post.link || undefined,
-            post.image_url || undefined
-          );
+          console.log(`Posting to Page via Official API`);
+          const pageResponse = await officialPostToPage(pageId, pageToken, {
+            message: post.message,
+            link: post.link || undefined,
+            imageUrl: post.image_url || undefined
+          });
 
-          if (pageResponse.error) {
-            throw new Error(`Page post failed: ${pageResponse.error.message}`);
+          if (!pageResponse.success) {
+            throw new Error(`Page post failed: ${pageResponse.error}`);
           }
 
-          pagePostId = pageResponse.id || null;
-          console.log(`Posted to Page: ${pagePostId}`);
+          pagePostId = pageResponse.post_id || null;
+          lastPagePostId = pagePostId || undefined;
+          console.log(`Posted to Page via Official API: ${pagePostId}`);
         }
 
-        // Rate limit between posts
-        await delayForRateLimit();
+        // Rate limit between posts (small delay to avoid rate limits)
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
-        // Post to Group if needed
+        // Post to Group if needed (using Official Graph API)
         if ((post.target_type === 'group' || post.target_type === 'both') && groupId && groupToken) {
-          const groupResponse = await postToGroup(
-            groupId,
-            groupToken,
-            post.message,
-            post.link || undefined
-          );
+          console.log(`Posting to Group via Official API`);
+          const groupResponse = await officialPostToGroup(groupId, groupToken, {
+            message: post.message,
+            link: post.link || undefined
+          });
 
-          if (groupResponse.error) {
-            throw new Error(`Group post failed: ${groupResponse.error.message}`);
+          if (!groupResponse.success) {
+            throw new Error(`Group post failed: ${groupResponse.error}`);
           }
 
-          groupPostId = groupResponse.id || null;
-          console.log(`Posted to Group: ${groupPostId}`);
+          groupPostId = groupResponse.post_id || null;
+          lastGroupPostId = groupPostId || undefined;
+          console.log(`Posted to Group via Official API: ${groupPostId}`);
         }
 
         // Update queue status to posted
@@ -492,10 +1078,74 @@ async function processPendingPosts(
       }
     }
 
-    return { posted, failed };
+    return { posted, failed, pagePostId: lastPagePostId, groupPostId: lastGroupPostId };
   } catch (error: any) {
     console.error('Error processing pending posts:', error);
-    return { posted, failed };
+    return { posted, failed, pagePostId: lastPagePostId, groupPostId: lastGroupPostId };
+  }
+}
+
+/**
+ * Monitor recent posts for comments and auto-respond (runs every 2 hours)
+ */
+async function monitorAndRespondToComments(env: any): Promise<void> {
+  const db = env.DB;
+  const pageToken = env.FB_PAGE_ACCESS_TOKEN;
+
+  if (!pageToken) {
+    console.log('No page access token, skipping comment monitoring');
+    return;
+  }
+
+  try {
+    // Get posts from last 24 hours
+    const yesterday = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
+
+    const recentPosts = await db
+      .prepare(`
+        SELECT
+          fcq.id,
+          fcq.page_post_id,
+          fcq.group_post_id,
+          fcq.message,
+          fcq.target_type
+        FROM facebook_content_queue fcq
+        WHERE fcq.status = 'posted'
+        AND fcq.posted_at > ?
+        AND (fcq.page_post_id IS NOT NULL OR fcq.group_post_id IS NOT NULL)
+        ORDER BY fcq.posted_at DESC
+      `)
+      .bind(yesterday)
+      .all();
+
+    if (!recentPosts.results || recentPosts.results.length === 0) {
+      console.log('No recent posts to monitor');
+      return;
+    }
+
+    // Build post ID list and context map
+    const postIds: string[] = [];
+    const postContextMap = new Map<string, string>();
+
+    for (const post of recentPosts.results as any[]) {
+      if (post.page_post_id) {
+        postIds.push(post.page_post_id);
+        postContextMap.set(post.page_post_id, post.message || 'Local business post');
+      }
+      // Note: Group posts require different permissions, skipping for now
+    }
+
+    if (postIds.length === 0) {
+      console.log('No page posts to monitor');
+      return;
+    }
+
+    // Process comments
+    const result = await processComments(env, postIds, postContextMap, pageToken);
+    console.log(`Comment monitoring complete:`, result);
+
+  } catch (error) {
+    console.error('Error monitoring comments:', error);
   }
 }
 

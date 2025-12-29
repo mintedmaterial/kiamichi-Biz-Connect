@@ -61,14 +61,65 @@ You will provide expert guidance on:
 
 ## Project-Specific Context
 
-You are working on **The Public View**, a serverless application with:
-- Backend in `backend/src/index.ts` (single-file Worker)
-- D1 database with tables: public_land_units, cameras, intel_posts, users, subscriptions
-- R2 bucket for camera images with key pattern: `cameras/{camera_id}/{YYYYMMDD-HHMMSS}.jpg`
-- KV namespace for weather API caching (10 min TTL, keys: `weather:{lat}:{lng}`)
-- Workers AI integration for chat/regulations assistant
-- Custom JWT authentication (HS256) with role-based access
-- Scheduled cron trigger for hourly camera polling
+You are working on **Kiamichi Biz Connect**, a business directory platform with three Cloudflare Workers:
+
+### Main Worker (`src/index.ts`)
+Routes: `kiamichibizconnect.com/*`, `www.kiamichibizconnect.com/*`
+
+**Bindings:**
+- **D1 Database**: `DB` → `kiamichi-biz-connect-db` (ID: `e8b7b17a-a93b-4b61-92ad-80b488266e12`)
+  - Tables: businesses, categories, listing_pages, page_components, business_owners, business_ownership, portal_sessions, page_snapshots, published_pages_r2, blog_posts, contact_leads, admin_sessions, facebook_auth, social_content_queue
+- **R2 Buckets**:
+  - `IMAGES` → `kiamichi-biz-images` (business images, logos, generated social media images)
+  - `TEMPLATES` → `kiamichi-component-templates` (JSON component templates)
+- **KV Namespace**: `CACHE` → `a5a33e270e4548548d43cf0554323e57` (OAuth state, FB sessions)
+- **Workers AI**: `AI` (blog generation, AI search with Llama 3.1)
+- **Service Binding**: `ANALYZER` → `kiamichi-biz-ai-analyzer`
+
+**Authentication:** Google OAuth for admins, email verification for business owners
+
+### Business Agent Worker (`workers/business-agent/`)
+Routes: `app.kiamichibizconnect.com/*`
+
+**Bindings:**
+- **D1 Database**: `DB` → `kiamichi-biz-connect-db` (same as main)
+- **R2 Buckets**:
+  - `TEMPLATES` → `kiamichi-component-templates`
+  - `BUSINESS_ASSETS` → `kiamichi-business-assets` (published static pages)
+  - `IMAGES` → `kiamichi-biz-images`
+- **KV Namespace**: `CACHE` → `a5a33e270e4548548d43cf0554323e57`
+- **Workers AI**: `AI` (OpenAI GPT-4o-mini for chat)
+- **Service Bindings**:
+  - `ANALYZER` → `kiamichi-biz-ai-analyzer`
+  - `RAG_AGENT` → `purple-snow-f107-nlweb` (complex SQL queries)
+  - `FACEBOOK_WORKER` → `kiamichi-facebook-worker`
+- **Durable Objects**:
+  - `Chat` (class_name: `Chat`) - Conversational AI agent with tool execution
+  - `VoiceAgent` (class_name: `VoiceAgent`) - WebSocket voice streaming
+
+**Tech Stack:** SvelteKit frontend, Vercel AI SDK, MCP (Model Context Protocol) integration
+
+### Analyzer Worker (`workers/analyzer-worker/`)
+**Bindings:**
+- **D1 Database**: `DB` → `kiamichi-biz-connect-db`
+- **R2 Bucket**: `IMAGES` → `kiamichi-biz-images`
+- **KV Namespace**: `CACHE` → `a5a33e270e4548548d43cf0554323e57`
+- **Workers AI**: `AI` (Llama 3.1 8B for business enrichment)
+- **Cron Triggers**: `["0 14 * * *", "0 20 * * *", "0 2 * * *"]` (3x daily: 8am, 2pm, 8pm CST)
+
+**Purpose:** Autonomous business listing enrichment from web scraping
+
+### Facebook Worker (`workers/facebook-worker/`)
+**Bindings:**
+- **D1 Database**: `DB` → `kiamichi-biz-connect-db`
+- **KV Namespace**: `CACHE` → `a5a33e270e4548548d43cf0554323e57`
+- **R2 Bucket**: `IMAGES` → `kiamichi-biz-images`
+- **Workers AI**: `AI`
+- **Browser Rendering**: `BROWSER` (Cloudflare Browser Rendering API)
+- **Durable Object**: `BROWSER_SESSION` (class_name: `BrowserSession`) - Persistent browser state
+- **Cron Triggers**: `["0 3,15,22 * * *", "0 2,14 * * *"]` (posting & token refresh)
+
+**Purpose:** Automated Facebook posting to page (930967626764484) and group (1304321945055195)
 
 ## Operational Guidelines
 
@@ -93,12 +144,12 @@ You are working on **The Public View**, a serverless application with:
 # CORRECT (TOML array of tables syntax):
 [[d1_databases]]
 binding = "DB"
-database_name = "public_view"
+database_name = "example"
 database_id = "cf40e07b-944b-4556-a375-6e61a7b96e27"
 
 [[r2_buckets]]
 binding = "MEDIA"
-bucket_name = "public-view-media"
+bucket_name = "example"
 # Account ID: ff3c5e2beaea9f85fee3200bfe28da16
 
 [[kv_namespaces]]

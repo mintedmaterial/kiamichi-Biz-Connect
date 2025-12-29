@@ -1,0 +1,197 @@
+https://developers.deepgram.com/docs/flux/quickstart
+https://developers.deepgram.com/docs/flux/configuration
+https://github.com/deepgram-devs/deepgram-demos-flux-agent
+https://developers.deepgram.com/docs/flux/voice-agent-eager-eot
+https://developers.deepgram.com/docs/tts-rest
+https://developers.deepgram.com/docs/text-to-speech
+https://github.com/deepgram-starters/nextjs-text-to-speech
+https://github.com/deepgram-starters/node-text-to-speech
+
+deepgram code 
+
+text to speech 
+
+import { createClient } from '@deepgram/sdk';
+import fs from 'fs';
+import { pipeline } from 'stream/promises';
+
+const text = `Q: What makes your products different from mass-produced leather goods? A: Every item is individually handcrafted using traditional methods. We use full-grain leather (the highest quality), hand-stitch each piece, and finish every edge. Mass-produced items use lower-grade leather, machine stitching, and lack the durability and character of handmade goods.
+
+This knowledge base should be referenced for all product information, pricing, and specifications when assisting customers. Prices marked as $0.00 are placeholders and should be updated with actual pricing before the knowledge base is deployed.`;
+
+const speak = async () => {
+  const deepgramApiKey = '569a4b9c0b422004ddac9fdf008fd30983853b57';
+  const outputFile = 'audio.mp3';
+  const deepgram = createClient(deepgramApiKey);
+
+  const response = await deepgram.speak.request(
+    { text },
+    {
+      model: 'aura-2-thalia-en',
+    }
+  );
+
+  const stream = await response.getStream();
+  if (stream) {
+    const file = fs.createWriteStream(outputFile);
+    try {
+      await pipeline(stream, file);
+      console.log(`Audio file written to ${outputFile}`);
+    } catch (e) {
+      console.error('Error writing audio to file:', err);
+    }
+  } else {
+    console.error('Error generating audio:', stream);
+  }
+}
+
+speak();
+
+
+shell example :
+
+curl \
+  -X POST \
+  -H "Authorization: Token 569a4b9c0b422004ddac9fdf008fd30983853b57" \
+  -H "Content-Type: text/plain" \
+  -d "Q: What makes your products different from mass-produced leather goods? A: Every item is individually handcrafted using traditional methods. We use full-grain leather (the highest quality), hand-stitch each piece, and finish every edge. Mass-produced items use lower-grade leather, machine stitching, and lack the durability and character of handmade goods.
+
+This knowledge base should be referenced for all product information, pricing, and specifications when assisting customers. Prices marked as $0.00 are placeholders and should be updated with actual pricing before the knowledge base is deployed." \
+  "https://api.deepgram.com/v1/speak?model=aura-2-thalia-en" \
+  -o audio.mp3
+
+
+
+Speech to text 
+
+java
+
+import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
+
+const DEEPGRAM_API_KEY = '569a4b9c0b422004ddac9fdf008fd30983853b57';
+
+// Note: This is an English stream, update accordingly for other languages
+const STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/CSPANRADIOAAC.aac';
+
+const live = async () => {
+  const deepgram = createClient(DEEPGRAM_API_KEY);
+
+  const connection = deepgram.listen.live({
+    model: 'nova-3',
+    language: 'en',
+    smart_format: true,
+    interim_results: true,
+    endpointing: 10,
+    dictation: true,
+  });
+
+  connection.on(LiveTranscriptionEvents.Open, async () => {
+    console.log(`Transcribing ${STREAM_URL}...`);
+
+    const response = await fetch(STREAM_URL, { redirect: 'follow' });
+    const reader = response.body.getReader();
+
+    const pump = async () => {
+      const { done, value } = await reader.read();
+      if (done) return;
+      connection.send(value);
+      pump();
+    };
+    pump();
+  });
+
+  connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+    if (data.channel?.alternatives?.[0]) {
+      const transcript = data.channel.alternatives[0].transcript;
+      const prefix = data.is_final ? '[ FINAL ]' : '[Interim]';
+      if (transcript) {
+        console.log(`${prefix} ${transcript}`);
+      }
+    }
+  });
+
+  connection.on(LiveTranscriptionEvents.SpeechStarted, (data) => {
+    // Handle speech started event
+  });
+
+  connection.on(LiveTranscriptionEvents.UtteranceEnd, (data) => {
+    // Handle utterance end event
+  });
+
+  connection.on(LiveTranscriptionEvents.Close, () => {
+    console.log('Connection closed.');
+  });
+
+  connection.on(LiveTranscriptionEvents.Error, (err) => {
+    console.error(err);
+  });
+};
+
+live();
+
+
+Shell command
+
+import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
+
+const DEEPGRAM_API_KEY = '569a4b9c0b422004ddac9fdf008fd30983853b57';
+
+// Note: This is an English stream, update accordingly for other languages
+const STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/CSPANRADIOAAC.aac';
+
+const live = async () => {
+  const deepgram = createClient(DEEPGRAM_API_KEY);
+
+  const connection = deepgram.listen.live({
+    model: 'nova-3',
+    language: 'en',
+    smart_format: true,
+    interim_results: true,
+    endpointing: 10,
+    dictation: true,
+  });
+
+  connection.on(LiveTranscriptionEvents.Open, async () => {
+    console.log(`Transcribing ${STREAM_URL}...`);
+
+    const response = await fetch(STREAM_URL, { redirect: 'follow' });
+    const reader = response.body.getReader();
+
+    const pump = async () => {
+      const { done, value } = await reader.read();
+      if (done) return;
+      connection.send(value);
+      pump();
+    };
+    pump();
+  });
+
+  connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+    if (data.channel?.alternatives?.[0]) {
+      const transcript = data.channel.alternatives[0].transcript;
+      const prefix = data.is_final ? '[ FINAL ]' : '[Interim]';
+      if (transcript) {
+        console.log(`${prefix} ${transcript}`);
+      }
+    }
+  });
+
+  connection.on(LiveTranscriptionEvents.SpeechStarted, (data) => {
+    // Handle speech started event
+  });
+
+  connection.on(LiveTranscriptionEvents.UtteranceEnd, (data) => {
+    // Handle utterance end event
+  });
+
+  connection.on(LiveTranscriptionEvents.Close, () => {
+    console.log('Connection closed.');
+  });
+
+  connection.on(LiveTranscriptionEvents.Error, (err) => {
+    console.error(err);
+  });
+};
+
+live();
+

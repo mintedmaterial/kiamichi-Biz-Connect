@@ -1,0 +1,310 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: 'Workers to deploy (comma-separated: main,business-agent,analyzer,facebook or "all")'
+        required: false
+        default: 'all'
+
+# Ensure only one deployment runs at a time
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  # Check for database migrations
+  check-migrations:
+    name: Check Database Migrations
+    runs-on: ubuntu-latest
+    outputs:
+      has-migrations: ${{ steps.check.outputs.has-migrations }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for new SQL files
+        id: check
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -E '\.(sql)$'; then
+            echo "has-migrations=true" >> $GITHUB_OUTPUT
+            echo "Database migration files detected"
+          else
+            echo "has-migrations=false" >> $GITHUB_OUTPUT
+            echo "No database migrations"
+          fi
+
+  # Run database migrations if needed
+  migrate-database:
+    name: Run Database Migrations
+    needs: check-migrations
+    if: needs.check-migrations.outputs.has-migrations == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run schema migrations
+        run: |
+          if [ -f "schema.sql" ]; then
+            npx wrangler d1 execute kiamichi-biz-connect-db --remote --file=./schema.sql
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Run seed migrations (if exists)
+        run: |
+          if [ -f "seed.sql" ] && git diff --name-only HEAD~1 HEAD | grep -q "seed.sql"; then
+            echo "Seed file updated, running migration..."
+            npx wrangler d1 execute kiamichi-biz-connect-db --remote --file=./seed.sql
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        continue-on-error: true
+
+  # Deploy main worker
+  deploy-main:
+    name: Deploy Main Worker
+    needs: [check-migrations, migrate-database]
+    if: |
+      always() &&
+      !cancelled() &&
+      (needs.migrate-database.result == 'success' || needs.migrate-database.result == 'skipped') &&
+      (github.event_name == 'push' || contains(github.event.inputs.workers, 'all') || contains(github.event.inputs.workers, 'main'))
+    runs-on: ubuntu-latest
+    environment:
+      name: production-main
+      url: https://kiamichibizconnect.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          secrets: |
+            ADMIN_KEY
+            GOOGLE_CLIENT_SECRET
+            FACEBOOK_APP_SECRET
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+
+      - name: Deployment summary
+        run: |
+          echo "### Main Worker Deployed :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://kiamichibizconnect.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+  # Deploy business-agent worker
+  deploy-business-agent:
+    name: Deploy Business Agent
+    needs: [check-migrations, migrate-database]
+    if: |
+      always() &&
+      !cancelled() &&
+      (needs.migrate-database.result == 'success' || needs.migrate-database.result == 'skipped') &&
+      (github.event_name == 'push' || contains(github.event.inputs.workers, 'all') || contains(github.event.inputs.workers, 'business-agent'))
+    runs-on: ubuntu-latest
+    environment:
+      name: production-business-agent
+      url: https://app.kiamichibizconnect.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: workers/business-agent/package-lock.json
+
+      - name: Install dependencies
+        working-directory: workers/business-agent
+        run: npm ci
+
+      - name: Build business-agent
+        working-directory: workers/business-agent
+        run: npm run build
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/business-agent
+          secrets: |
+            GOOGLE_CLIENT_SECRET
+            FACEBOOK_APP_SECRET
+        env:
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+
+      - name: Deployment summary
+        run: |
+          echo "### Business Agent Deployed :robot:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: https://app.kiamichibizconnect.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+  # Deploy analyzer worker
+  deploy-analyzer:
+    name: Deploy Analyzer Worker
+    needs: [check-migrations, migrate-database]
+    if: |
+      always() &&
+      !cancelled() &&
+      (needs.migrate-database.result == 'success' || needs.migrate-database.result == 'skipped') &&
+      (github.event_name == 'push' || contains(github.event.inputs.workers, 'all') || contains(github.event.inputs.workers, 'analyzer'))
+    runs-on: ubuntu-latest
+    environment:
+      name: production-analyzer
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: workers/analyzer-worker/package-lock.json
+
+      - name: Install dependencies
+        working-directory: workers/analyzer-worker
+        run: npm ci --ignore-scripts
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/analyzer-worker
+
+      - name: Deployment summary
+        run: |
+          echo "### Analyzer Worker Deployed :mag:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Worker**: kiamichi-biz-ai-analyzer" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cron Schedule**: 3 times daily (8am, 2pm, 8pm CST)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+  # Deploy facebook worker
+  deploy-facebook:
+    name: Deploy Facebook Worker
+    needs: [check-migrations, migrate-database]
+    if: |
+      always() &&
+      !cancelled() &&
+      (needs.migrate-database.result == 'success' || needs.migrate-database.result == 'skipped') &&
+      (github.event_name == 'push' || contains(github.event.inputs.workers, 'all') || contains(github.event.inputs.workers, 'facebook'))
+    runs-on: ubuntu-latest
+    environment:
+      name: production-facebook
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: workers/facebook-worker/package-lock.json
+
+      - name: Install dependencies
+        working-directory: workers/facebook-worker
+        run: npm ci --ignore-scripts
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: workers/facebook-worker
+          secrets: |
+            FB_EMAIL
+            FB_PASSWORD
+            FACEBOOK_APP_SECRET
+        env:
+          FB_EMAIL: ${{ secrets.FB_EMAIL }}
+          FB_PASSWORD: ${{ secrets.FB_PASSWORD }}
+          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
+
+      - name: Deployment summary
+        run: |
+          echo "### Facebook Worker Deployed :wave:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Worker**: kiamichi-facebook-worker" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cron Schedule**: Posts 3 times daily (9am, 4pm, 9pm CST)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+
+  # Deployment success notification
+  deployment-complete:
+    name: Deployment Complete
+    needs: [deploy-main, deploy-business-agent, deploy-analyzer, deploy-facebook]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check deployment status
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Worker | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Main Worker | ${{ needs.deploy-main.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Business Agent | ${{ needs.deploy-business-agent.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Analyzer Worker | ${{ needs.deploy-analyzer.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Facebook Worker | ${{ needs.deploy-facebook.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.deploy-main.result }}" == "failure" ] || \
+             [ "${{ needs.deploy-business-agent.result }}" == "failure" ] || \
+             [ "${{ needs.deploy-analyzer.result }}" == "failure" ] || \
+             [ "${{ needs.deploy-facebook.result }}" == "failure" ]; then
+            echo ":x: One or more deployments failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo ":white_check_mark: All deployments completed successfully" >> $GITHUB_STEP_SUMMARY
+          fi

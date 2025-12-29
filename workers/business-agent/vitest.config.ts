@@ -15,6 +15,8 @@ export default defineWorkersConfig({
         }
       }
     },
+    // Use node environment for unit tests, workers pool for integration tests
+    environment: "node",
     poolOptions: {
       workers: {
         wrangler: { configPath: "./wrangler.jsonc" }

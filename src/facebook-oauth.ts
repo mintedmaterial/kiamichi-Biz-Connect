@@ -95,6 +95,60 @@ export async function exchangeCodeForToken(
 }
 
 /**
+ * Exchange short-lived token for long-lived token (60 days)
+ * @param shortLivedToken Short-lived access token
+ * @param env Environment with FB_APP_ID and FB_APP_SECRET
+ */
+export async function extendAccessToken(
+  shortLivedToken: string,
+  env: Env
+): Promise<{ access_token: string; token_type: string; expires_in: number }> {
+  const params = new URLSearchParams({
+    grant_type: 'fb_exchange_token',
+    client_id: env.FB_APP_ID as string,
+    client_secret: env.FB_APP_SECRET as string,
+    fb_exchange_token: shortLivedToken
+  });
+
+  const response = await fetch(
+    `https://graph.facebook.com/v18.0/oauth/access_token?${params.toString()}`
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to extend access token: ${error}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Debug token to check expiration and validity
+ * @param accessToken Token to debug
+ * @param appAccessToken App access token (app_id|app_secret)
+ */
+export async function debugAccessToken(
+  accessToken: string,
+  appAccessToken: string
+): Promise<any> {
+  const params = new URLSearchParams({
+    input_token: accessToken,
+    access_token: appAccessToken
+  });
+
+  const response = await fetch(
+    `https://graph.facebook.com/v18.0/debug_token?${params.toString()}`
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to debug token: ${error}`);
+  }
+
+  return await response.json();
+}
+
+/**
  * Get user's Facebook pages (businesses they manage)
  * @param accessToken User access token
  */

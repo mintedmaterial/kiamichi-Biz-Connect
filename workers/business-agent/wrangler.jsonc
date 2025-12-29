@@ -70,6 +70,10 @@
     {
       "binding": "IMAGES",
       "bucket_name": "kiamichi-biz-images"
+    },
+    {
+      "binding": "BUSINESS_IMAGES",
+      "bucket_name": "kiamichi-business-images"
     }
   ],
   "durable_objects": {

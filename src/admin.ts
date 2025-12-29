@@ -161,6 +161,34 @@ export async function handleAdminPage(request: Request, env: Env): Promise<Respo
     return await deleteBlogImage(imageId, db, env);
   }
 
+  // AI Analyzer Routes
+  if (action === 'analyze-business' && request.method === 'POST') {
+    const businessId = url.searchParams.get('id');
+    if (!businessId) return Response.json({ error: 'Missing business ID' }, { status: 400 });
+    return await triggerBusinessAnalysis(businessId, session.email, env);
+  }
+
+  if (action === 'get-analysis') {
+    const businessId = url.searchParams.get('id');
+    if (!businessId) return Response.json({ error: 'Missing business ID' }, { status: 400 });
+    return await getBusinessAnalysis(businessId, env);
+  }
+
+  if (action === 'get-suggestions') {
+    const businessId = url.searchParams.get('id');
+    if (!businessId) return Response.json({ error: 'Missing business ID' }, { status: 400 });
+    return await getBusinessSuggestions(businessId, db);
+  }
+
+  if (action === 'review-suggestion' && request.method === 'POST') {
+    const suggestionId = url.searchParams.get('id');
+    const actionType = url.searchParams.get('review_action');
+    if (!suggestionId || !actionType) {
+      return Response.json({ error: 'Missing suggestion ID or action' }, { status: 400 });
+    }
+    return await reviewSuggestion(suggestionId, actionType, session.email, db);
+  }
+
   // Admin dashboard HTML
   return new Response(adminDashboardHTML(), {
     headers: { 'Content-Type': 'text/html' }
@@ -214,9 +242,10 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
       <td class="px-4 py-2">${escapeHtml(b.state || '')}</td>
       <td class="px-4 py-2">${b.is_featured ? 'Yes' : 'No'}</td>
       <td class="px-4 py-2">${b.is_active ? 'Active' : 'Inactive'}</td>
-      <td class="px-4 py-2">
-        <button type="button" data-id="${b.id}" class="edit-btn px-3 py-1 bg-blue-500 text-white rounded">Edit</button>
-        <button type="button" data-id="${b.id}" class="delete-btn px-3 py-1 bg-red-500 text-white rounded">Delete</button>
+      <td class="px-4 py-2 space-x-2">
+        <button type="button" data-id="${b.id}" class="edit-btn px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>
+        <button type="button" data-id="${b.id}" class="analyze-btn px-3 py-1 bg-purple-500 text-white rounded hover:bg-purple-600">🤖 Analyze</button>
+        <button type="button" data-id="${b.id}" class="delete-btn px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
       </td>
     </tr>
   `).join('');
@@ -547,7 +576,169 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
                   if (id && window.deleteBusiness) window.deleteBusiness(Number(id));
                 });
               });
+
+              // AI Analyzer functionality
+              document.querySelectorAll('.analyze-btn').forEach(function(el) {
+                el.addEventListener('click', function(e) {
+                  const id = e.currentTarget.getAttribute('data-id');
+                  if (id) openAnalyzer(Number(id));
+                });
+              });
+
+              async function openAnalyzer(businessId) {
+                const modal = document.getElementById('analyzerModal');
+                const businessName = document.querySelector(\`button.analyze-btn[data-id="\${businessId}"]\`).closest('tr').querySelector('td:nth-child(2)').textContent;
+
+                document.getElementById('analyzerBusinessName').textContent = businessName;
+                document.getElementById('analyzerStatus').textContent = 'Starting analysis...';
+                document.getElementById('analyzerResults').innerHTML = '';
+                document.getElementById('suggestionsPanel').style.display = 'none';
+                modal.style.display = 'block';
+
+                try {
+                  // Trigger analysis
+                  const response = await fetch('/admin?action=analyze-business&id=' + businessId, {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                  });
+
+                  const result = await response.json();
+
+                  if (result.success) {
+                    document.getElementById('analyzerStatus').innerHTML = \`
+                      <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
+                        ✅ Analysis complete! Completeness Score: <strong>\${result.completenessScore}/100</strong>
+                      </div>
+                    \`;
+
+                    // Load suggestions
+                    if (result.suggestionsCount > 0) {
+                      loadSuggestions(businessId);
+                    } else {
+                      document.getElementById('analyzerResults').innerHTML = '<p class="text-gray-600">No suggestions found. This business is complete!</p>';
+                    }
+                  } else {
+                    throw new Error(result.error || 'Analysis failed');
+                  }
+
+                } catch (error) {
+                  document.getElementById('analyzerStatus').innerHTML = \`
+                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                      ❌ Error: \${error.message}
+                    </div>
+                  \`;
+                }
+              }
+
+              async function loadSuggestions(businessId) {
+                try {
+                  const response = await fetch('/admin?action=get-suggestions&id=' + businessId, {
+                    credentials: 'same-origin'
+                  });
+                  const data = await response.json();
+
+                  if (data.suggestions && data.suggestions.length > 0) {
+                    const suggestionsHTML = data.suggestions.map(s => \`
+                      <div class="border rounded-lg p-4 mb-4 \${
+                        s.status === 'pending' ? 'bg-yellow-50 border-yellow-300' :
+                        s.status === 'approved' ? 'bg-green-50 border-green-300' :
+                        s.status === 'rejected' ? 'bg-red-50 border-red-300' :
+                        'bg-gray-50 border-gray-300'
+                      }">
+                        <div class="flex justify-between items-start mb-2">
+                          <div>
+                            <span class="font-semibold text-gray-800">\${s.field_name}</span>
+                            <span class="ml-2 px-2 py-1 text-xs rounded \${
+                              s.status === 'pending' ? 'bg-yellow-200 text-yellow-800' :
+                              s.status === 'approved' ? 'bg-green-200 text-green-800' :
+                              s.status === 'rejected' ? 'bg-red-200 text-red-800' :
+                              'bg-gray-200 text-gray-800'
+                            }">\${s.status}</span>
+                          </div>
+                          <span class="text-sm font-bold \${
+                            s.confidence >= 0.9 ? 'text-green-600' :
+                            s.confidence >= 0.7 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }">\${Math.round(s.confidence * 100)}% confidence</span>
+                        </div>
+                        <div class="text-sm mb-2">
+                          <div class="text-gray-600">Current: <span class="italic">\${s.current_value || '(empty)'}</span></div>
+                          <div class="text-gray-900 font-medium">Suggested: <span class="text-blue-700">\${s.suggested_value}</span></div>
+                          <div class="text-gray-500 text-xs mt-1">Source: \${s.source_type}\${s.source_url ? ' - ' + s.source_url : ''}</div>
+                        </div>
+                        \${s.status === 'pending' ? \`
+                          <div class="flex gap-2 mt-3">
+                            <button onclick="reviewSuggestion(\${s.id}, 'approve', \${businessId})" class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm">✓ Approve</button>
+                            <button onclick="reviewSuggestion(\${s.id}, 'reject', \${businessId})" class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm">✗ Reject</button>
+                          </div>
+                        \` : s.reviewed_by ? \`
+                          <div class="text-xs text-gray-500 mt-2">Reviewed by: \${s.reviewed_by}</div>
+                        \` : ''}
+                      </div>
+                    \`).join('');
+
+                    document.getElementById('analyzerResults').innerHTML = suggestionsHTML;
+                    document.getElementById('suggestionsPanel').style.display = 'block';
+                  } else {
+                    document.getElementById('analyzerResults').innerHTML = '<p class="text-gray-600">No suggestions available.</p>';
+                  }
+
+                } catch (error) {
+                  document.getElementById('analyzerResults').innerHTML = \`<p class="text-red-600">Error loading suggestions: \${error.message}</p>\`;
+                }
+              }
+
+              window.reviewSuggestion = async function(suggestionId, action, businessId) {
+                try {
+                  const response = await fetch(\`/admin?action=review-suggestion&id=\${suggestionId}&review_action=\${action}\`, {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                  });
+
+                  const result = await response.json();
+
+                  if (result.success) {
+                    // Reload suggestions to show updated status
+                    loadSuggestions(businessId);
+                  } else {
+                    alert('Error: ' + (result.error || 'Review failed'));
+                  }
+
+                } catch (error) {
+                  alert('Error reviewing suggestion: ' + error.message);
+                }
+              };
+
+              function closeAnalyzer() {
+                document.getElementById('analyzerModal').style.display = 'none';
+              }
             </script>
+
+            <!-- Analyzer Modal -->
+            <div id="analyzerModal" style="display:none" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-6 border-b">
+                  <div class="flex justify-between items-center">
+                    <h2 class="text-2xl font-bold">🤖 AI Business Analyzer</h2>
+                    <button onclick="closeAnalyzer()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                  </div>
+                  <p class="text-gray-600 mt-2">Analyzing: <span id="analyzerBusinessName" class="font-semibold"></span></p>
+                </div>
+
+                <div class="p-6">
+                  <div id="analyzerStatus" class="mb-4"></div>
+
+                  <div id="suggestionsPanel" style="display:none">
+                    <h3 class="text-lg font-semibold mb-3">📝 Enrichment Suggestions</h3>
+                    <div id="analyzerResults"></div>
+                  </div>
+                </div>
+
+                <div class="p-6 border-t bg-gray-50">
+                  <button onclick="closeAnalyzer()" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">Close</button>
+                </div>
+              </div>
+            </div>
   </body>
   </html>
   `;
@@ -1982,6 +2173,12 @@ function adminDashboardHTML(): string {
         <div class="bg-white rounded-lg shadow p-6 mb-6">
             <h2 class="text-xl font-bold mb-4">Quick Actions</h2>
             <div class="flex flex-wrap gap-2">
+                <a href="/chat" class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-2 rounded-lg hover:from-purple-700 hover:to-blue-700 inline-flex items-center gap-2 font-semibold shadow-lg">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                  </svg>
+                  AI Agent Assistant
+                </a>
                 <a href="/admin?action=manage-businesses" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 inline-block">
                   Manage Businesses
                 </a>
@@ -2278,4 +2475,159 @@ function adminDashboardHTML(): string {
 </body>
 </html>
   `;
+}
+
+// ========================================
+// AI Analyzer Functions
+// ========================================
+
+/**
+ * Trigger business analysis via analyzer worker
+ */
+async function triggerBusinessAnalysis(businessId: string, adminEmail: string, env: Env): Promise<Response> {
+  try {
+    // Call analyzer worker via service binding
+    const analyzerResponse = await env.ANALYZER.fetch('https://analyzer/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        businessId: parseInt(businessId),
+        mode: 'manual',
+        adminEmail
+      })
+    });
+
+    const result = await analyzerResponse.json();
+    return Response.json(result);
+
+  } catch (error) {
+    console.error('Error triggering analysis:', error);
+    return Response.json({
+      success: false,
+      error: 'Failed to trigger analysis: ' + (error as Error).message
+    }, { status: 500 });
+  }
+}
+
+/**
+ * Get latest analysis results for a business
+ */
+async function getBusinessAnalysis(businessId: string, env: Env): Promise<Response> {
+  try {
+    const analyzerResponse = await env.ANALYZER.fetch(`https://analyzer/analysis/${businessId}`);
+    const result = await analyzerResponse.json();
+    return Response.json(result);
+
+  } catch (error) {
+    console.error('Error fetching analysis:', error);
+    return Response.json({
+      error: 'Failed to fetch analysis: ' + (error as Error).message
+    }, { status: 500 });
+  }
+}
+
+/**
+ * Get enrichment suggestions for a business
+ */
+async function getBusinessSuggestions(businessId: string, db: DatabaseService): Promise<Response> {
+  try {
+    const { results } = await db.db.prepare(`
+      SELECT
+        id,
+        field_name,
+        current_value,
+        suggested_value,
+        confidence,
+        source_url,
+        source_type,
+        status,
+        created_at,
+        reviewed_at,
+        reviewed_by,
+        notes
+      FROM enrichment_suggestions
+      WHERE business_id = ?
+      ORDER BY
+        CASE status
+          WHEN 'pending' THEN 1
+          WHEN 'approved' THEN 2
+          WHEN 'rejected' THEN 3
+          WHEN 'auto_applied' THEN 4
+        END,
+        confidence DESC,
+        created_at DESC
+    `).bind(businessId).all();
+
+    return Response.json({ suggestions: results || [] });
+
+  } catch (error) {
+    console.error('Error fetching suggestions:', error);
+    return Response.json({
+      error: 'Failed to fetch suggestions: ' + (error as Error).message
+    }, { status: 500 });
+  }
+}
+
+/**
+ * Review (approve or reject) an enrichment suggestion
+ */
+async function reviewSuggestion(
+  suggestionId: string,
+  action: string,
+  reviewedBy: string,
+  db: DatabaseService
+): Promise<Response> {
+  try {
+    if (!['approve', 'reject'].includes(action)) {
+      return Response.json({
+        error: 'Invalid action. Must be "approve" or "reject"'
+      }, { status: 400 });
+    }
+
+    // Get the suggestion
+    const suggestion = await db.db.prepare(`
+      SELECT * FROM enrichment_suggestions WHERE id = ?
+    `).bind(suggestionId).first() as any;
+
+    if (!suggestion) {
+      return Response.json({ error: 'Suggestion not found' }, { status: 404 });
+    }
+
+    if (action === 'approve') {
+      // Apply the suggestion to the business
+      await db.db.prepare(`
+        UPDATE businesses
+        SET ${suggestion.field_name} = ?,
+            updated_at = unixepoch()
+        WHERE id = ?
+      `).bind(suggestion.suggested_value, suggestion.business_id).run();
+
+      // Mark as approved
+      await db.db.prepare(`
+        UPDATE enrichment_suggestions
+        SET status = 'approved',
+            reviewed_at = unixepoch(),
+            reviewed_by = ?
+        WHERE id = ?
+      `).bind(reviewedBy, suggestionId).run();
+
+    } else {
+      // Mark as rejected
+      await db.db.prepare(`
+        UPDATE enrichment_suggestions
+        SET status = 'rejected',
+            reviewed_at = unixepoch(),
+            reviewed_by = ?
+        WHERE id = ?
+      `).bind(reviewedBy, suggestionId).run();
+    }
+
+    return Response.json({ success: true, action });
+
+  } catch (error) {
+    console.error('Error reviewing suggestion:', error);
+    return Response.json({
+      error: 'Failed to review suggestion: ' + (error as Error).message
+    }, { status: 500 });
+  }
 }

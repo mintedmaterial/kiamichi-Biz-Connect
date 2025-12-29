@@ -5,7 +5,7 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod/v3";
 import type { Chat } from "./server";
-import { getCurrentAgent } from "agents";
+import { Agent, getCurrentAgent } from "agents";
 import { scheduleSchema } from "agents/schedule";
 
 /**
@@ -38,21 +38,6 @@ const generateBlogPost = tool({
 });
 
 /**
- * Create social media content for various platforms
- * Requires human confirmation before posting
- */
-const createSocialPost = tool({
-  description: "Generate social media content optimized for specific platforms (Facebook, Instagram, Twitter). Creates engaging posts with hashtags and CTAs.",
-  inputSchema: z.object({
-    platform: z.enum(["facebook", "instagram", "twitter"]).describe("The social media platform"),
-    message: z.string().describe("The core message or topic for the post"),
-    includeImage: z.boolean().default(false).describe("Whether to generate an AI image for the post"),
-    tone: z.enum(["professional", "casual", "friendly", "promotional"]).default("friendly")
-  })
-  // Omitting execute makes this require human confirmation
-});
-
-/**
  * Analyze and optimize SEO for the business listing
  * Requires human confirmation before applying changes
  */
@@ -74,7 +59,7 @@ const getBusinessInfo = tool({
     businessId: z.number().describe("The business ID to fetch information for")
   }),
   execute: async ({ businessId }) => {
-    const { agent } = getCurrentAgent<Chat>();
+    const { agent } = getCurrentAgent<Agent>();
     const env = agent?.env;
 
     if (!env?.DB) {
@@ -155,7 +140,7 @@ const scheduleTask = tool({
   description: "Schedule a task to be executed at a later time (e.g., publish blog post in 2 hours, update content tomorrow)",
   inputSchema: scheduleSchema,
   execute: async ({ when, description }) => {
-    const { agent } = getCurrentAgent<Chat>();
+    const { agent } = getCurrentAgent<Agent>();
 
     if (when.type === "no-schedule") {
       return "Not a valid schedule input";
@@ -385,11 +370,11 @@ const generateImage = tool({
 
 /**
  * Export all available tools
+ * Note: Social media tools (Facebook posting) are now in tools/facebooktools.ts
  */
 export const tools = {
   updateComponent,
   generateBlogPost,
-  createSocialPost,
   optimizeSEO,
   getBusinessInfo,
   scheduleTask,
@@ -473,72 +458,6 @@ Format: JSON with fields "title", "content" (HTML), "metaDescription" (max 160 c
     } catch (error) {
       console.error("Error generating blog post:", error);
       return `Error: ${error}`;
-    }
-  },
-
-  /**
-   * Execute social post creation after human confirmation
-   */
-  createSocialPost: async ({ platform, message, includeImage, tone }: {
-    platform: string;
-    message: string;
-    includeImage: boolean;
-    tone: string;
-  }) => {
-    const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
-
-    if (!env?.FACEBOOK_WORKER) {
-      throw new Error("Facebook worker not available");
-    }
-
-    try {
-      console.log(`[SOCIAL] Posting to ${platform}: ${message.substring(0, 100)}...`);
-
-      // Determine target based on platform
-      let target = 'both'; // Facebook Page and Group by default
-      if (platform === 'facebook') {
-        target = 'both'; // Post to both Page and Group
-      }
-
-      // Call Facebook worker to post
-      const response = await env.FACEBOOK_WORKER.fetch(new Request("https://facebook-worker/post", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          message,
-          link: undefined, // Can be enhanced to include links
-          image_url: includeImage ? undefined : undefined, // TODO: Integrate image generation
-          target
-        })
-      }));
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[SOCIAL] Facebook worker error: ${response.status} - ${errorText}`);
-        return `Failed to post to Facebook: ${response.status} - ${errorText}`;
-      }
-
-      const result = await response.json() as { success: boolean; pagePostId: string | null; groupPostId: string | null };
-
-      console.log(`[SOCIAL] Post successful:`, result);
-
-      let successMessage = `Successfully posted to ${platform}!\n\n`;
-      if (result.pagePostId) {
-        successMessage += `📄 Page Post ID: ${result.pagePostId}\n`;
-      }
-      if (result.groupPostId) {
-        successMessage += `👥 Group Post ID: ${result.groupPostId}\n`;
-      }
-
-      successMessage += `\nYour post is now live on Facebook!`;
-
-      return successMessage;
-    } catch (error) {
-      console.error("Error creating social post:", error);
-      return `Error posting to Facebook: ${error}`;
     }
   },
 

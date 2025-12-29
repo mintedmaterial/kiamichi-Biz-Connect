@@ -12,17 +12,32 @@ binding = "DB"
 database_name = "kiamichi-biz-connect-db"
 database_id = "e8b7b17a-a93b-4b61-92ad-80b488266e12"
 
-# R2 for image storage
+# R2 for AI-generated images (social/blog content)
 [[r2_buckets]]
 binding = "IMAGES"
 bucket_name = "kiamichi-biz-images"
+
+# R2 for user-generated business listing images
+[[r2_buckets]]
+binding = "BUSINESS_IMAGES"
+bucket_name = "kiamichi-business-images"
+
+# R2 for published static HTML pages
+[[r2_buckets]]
+binding = "BUSINESS_ASSETS"
+bucket_name = "kiamichi-business-assets"
+
+# R2 for component templates
+[[r2_buckets]]
+binding = "TEMPLATES"
+bucket_name = "kiamichi-component-templates"
 
 # KV for caching
 [[kv_namespaces]]
 binding = "CACHE"
 id = "a5a33e270e4548548d43cf0554323e57"
 
-# Workers AI for blog generation
+# Workers AI for blog generation and AI Search
 [ai]
 binding = "AI"
 

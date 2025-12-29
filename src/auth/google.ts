@@ -152,13 +152,31 @@ export async function handleGoogleCallback(
       db
     );
 
+    console.log('[Google OAuth] Session created, setting cookie and redirecting...');
+    console.log('[Google OAuth] Session ID:', sessionId);
+    console.log('[Google OAuth] User:', userInfo.email);
+
     // Set secure session cookie and redirect to admin
+    // Use SameSite=Lax for initial login (same-site), will be upgraded to None when accessing subdomain
+    // Domain=.kiamichibizconnect.com allows cookie to work on all subdomains
+
+    // We need to set TWO cookies to handle both domain and non-domain variants
+    // This ensures we overwrite any old cookies
+    const headers = new Headers();
+    headers.set('Location', '/admin');
+
+    // Clear any existing cookies (both with and without domain)
+    headers.append('Set-Cookie', `admin_session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/`);
+    headers.append('Set-Cookie', `admin_session=; Domain=.kiamichibizconnect.com; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/`);
+
+    // Set the new session cookie with domain
+    headers.append('Set-Cookie', `admin_session=${sessionId}; Domain=.kiamichibizconnect.com; HttpOnly; Secure; SameSite=Lax; Max-Age=86400; Path=/`);
+
+    console.log('[Google OAuth] Setting cookies to clear old and set new session');
+
     return new Response(null, {
       status: 302,
-      headers: {
-        'Location': '/admin',
-        'Set-Cookie': `admin_session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Max-Age=86400; Path=/`
-      }
+      headers
     });
 
   } catch (error) {
@@ -256,7 +274,7 @@ export async function handleLogout(
     status: 302,
     headers: {
       'Location': '/admin',
-      'Set-Cookie': 'admin_session=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/'
+      'Set-Cookie': 'admin_session=; Domain=.kiamichibizconnect.com; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/'
     }
   });
 }
