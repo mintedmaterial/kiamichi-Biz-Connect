@@ -30,7 +30,6 @@ binding = "AI"
 [[services]]
 binding = "ANALYZER"
 service = "kiamichi-biz-ai-analyzer"
-service = "kiamichi-facebook-worker"
 
 # Environment variables
 [vars]
