@@ -230,7 +230,7 @@ Format: JSON with fields "title", "content" (HTML), "metaDescription" (max 160 c
           : `${purpose}/${filename}`;
       } else {
         // Use BUSINESS_IMAGES bucket for business listing images
-        bucket = env.BUSINESS_IMAGES!;
+        bucket = env.BUSINESS_ASSETS!;
         bucketName = 'kiamichi-business-images';
         const category = purpose.replace('business-', ''); // hero, gallery, logo
         imagePath = `businesses/${businessId}/${category}/${filename}`;

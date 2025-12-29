@@ -175,29 +175,19 @@ Generate a prompt for a ${style} style photograph that would accompany this post
       console.log(`[IMAGE] Generating image with prompt: ${imagePrompt.substring(0, 100)}...`);
 
       // Generate image using Workers AI
+      // Both flux-1-schnell and flux-2-dev return { image: "base64_string" }
       const imageResponse = await env.AI.run("@cf/black-forest-labs/flux-1-schnell", {
-        prompt: imagePrompt.trim(),
-        num_steps: 4
+        prompt: imagePrompt.trim()
       });
 
-      if (!imageResponse || !(imageResponse instanceof ReadableStream)) {
-        throw new Error('Invalid image response from AI');
+      // Extract base64 image from response
+      const imageBase64 = (imageResponse as any).image;
+      if (!imageBase64) {
+        throw new Error('No image data in AI response');
       }
 
-      // Convert stream to buffer
-      const reader = imageResponse.getReader();
-      const chunks: Uint8Array[] = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-      const imageBuffer = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
-      let offset = 0;
-      for (const chunk of chunks) {
-        imageBuffer.set(chunk, offset);
-        offset += chunk.length;
-      }
+      // Convert base64 to buffer
+      const imageBuffer = Uint8Array.from(atob(imageBase64), (c) => c.codePointAt(0)!);
 
       // Store in R2
       const timestamp = Date.now();
@@ -219,9 +209,22 @@ Generate a prompt for a ${style} style photograph that would accompany this post
 
       // Store metadata in D1
       await env.DB.prepare(`
-        INSERT INTO social_media_images (business_id, image_url, prompt, platform, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).bind(businessId, imageUrl, imagePrompt, 'facebook', Math.floor(Date.now() / 1000)).run();
+        INSERT INTO social_media_images
+        (image_key, image_url, image_prompt, business_id, content_type, platform, generated_at, model, width, height, is_approved, quality_score, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 85, ?)
+      `).bind(
+        imageKey,
+        imageUrl,
+        imagePrompt,
+        businessId,
+        'post',
+        'facebook',
+        timestamp,
+        'flux-1-schnell',
+        1024,
+        1024,
+        Math.floor(timestamp / 1000)
+      ).run();
 
       console.log(`[IMAGE] Successfully generated and stored image: ${imageUrl}`);
 
