@@ -5,8 +5,9 @@
 import { getBusinessContextFromSession } from "../utils/session";
 
 /**
- * GET /api/my-business
+ * GET /api/my-business?business_id=X (optional, admin only)
  * Returns the authenticated user's business information
+ * Admin users can query any business by ID
  */
 export async function handleMyBusiness(
   request: Request,
@@ -17,17 +18,82 @@ export async function handleMyBusiness(
   }
 
   try {
+    const url = new URL(request.url);
+    const requestedBusinessId = url.searchParams.get("business_id");
+
     const businessContext = await getBusinessContextFromSession(
       request,
       env.DB
     );
 
+    // Developer/Admin mode: If admin session and business_id provided, load any business
+    if (requestedBusinessId && businessContext?.isAdmin) {
+      const businessId = parseInt(requestedBusinessId, 10);
+      if (isNaN(businessId)) {
+        return Response.json(
+          { error: "Invalid business_id parameter" },
+          { status: 400 }
+        );
+      }
+
+      console.log(`[API] Admin accessing business ${businessId}`);
+
+      const business = await env.DB.prepare(
+        `
+        SELECT
+          b.id,
+          b.name,
+          b.slug,
+          b.description,
+          b.phone,
+          b.email,
+          b.website,
+          b.category_id,
+          lp.id as listing_page_id,
+          lp.is_published,
+          lp.seo_title,
+          lp.seo_description
+        FROM businesses b
+        LEFT JOIN listing_pages lp ON b.id = lp.business_id
+        WHERE b.id = ?
+      `
+      )
+        .bind(businessId)
+        .first();
+
+      if (!business) {
+        return Response.json(
+          { error: "Business not found", message: `No business found with ID ${businessId}` },
+          { status: 404 }
+        );
+      }
+
+      return Response.json({
+        businessId: business.id,
+        name: business.name,
+        slug: business.slug,
+        description: business.description,
+        phone: business.phone,
+        email: business.email,
+        website: business.website,
+        categoryId: business.category_id,
+        listingPageId: business.listing_page_id,
+        isPublished: business.is_published === 1,
+        seoTitle: business.seo_title,
+        seoDescription: business.seo_description,
+        previewUrl: `/preview/${business.id}`,
+        liveUrl: `https://kiamichibizconnect.com/business/${business.slug}`,
+        developerMode: true
+      });
+    }
+
+    // Regular mode: Return authenticated user's business
     if (!businessContext) {
       return Response.json(
         {
           error: "No business found",
           message:
-            "You don't have any verified businesses. Please claim a business first."
+            "You don't have any verified businesses. Please claim a business first. Admins can use ?business_id=X parameter."
         },
         { status: 404 }
       );
