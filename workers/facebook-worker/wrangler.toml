@@ -48,6 +48,7 @@ FB_APP_ID = "879824491249046"
 # Secrets (set via wrangler secret put):
 # - FB_EMAIL: Facebook account email for browser login
 # - FB_PASSWORD: Facebook account password for browser login
+# - 
 
 # Post 3 times daily:
 # - 9 AM CST (3 PM UTC / 15:00)
