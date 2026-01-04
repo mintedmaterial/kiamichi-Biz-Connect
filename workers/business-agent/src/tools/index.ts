@@ -72,7 +72,8 @@ export const tools = {
   updateComponent,
   generateBlogPost,
   optimizeSEO,
-  generateImage,
+  // generateImage removed - was causing confusion with generateSocialImage
+  // Use generateSocialImage for social media, not this generic tool
 
   // Page Editing Tools
   selectComponentTemplate,

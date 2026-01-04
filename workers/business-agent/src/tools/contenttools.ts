@@ -4,8 +4,7 @@
  */
 import { tool } from "ai";
 import { z } from "zod/v3";
-import type { Chat } from "../server";
-import { getCurrentAgent } from "agents";
+import { env } from "cloudflare:workers";
 
 /**
  * Update a page component (hero, services, gallery, etc.)
@@ -76,9 +75,6 @@ export const contentExecutions = {
     content: Record<string, any>;
     config?: Record<string, any>;
   }) => {
-    const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
-
     if (!env?.DB) {
       throw new Error("Database not available");
     }
@@ -106,9 +102,6 @@ export const contentExecutions = {
     tone: string;
     wordCount: number;
   }) => {
-    const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
-
     if (!env?.AI || !env?.DB) {
       throw new Error("AI or Database not available");
     }
@@ -141,9 +134,6 @@ Format: JSON with fields "title", "content" (HTML), "metaDescription" (max 160 c
    * Execute SEO optimization after human confirmation
    */
   optimizeSEO: async ({ autoApply }: { autoApply: boolean }) => {
-    const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
-
     if (!env?.DB) {
       throw new Error("Database not available");
     }
@@ -186,9 +176,6 @@ Format: JSON with fields "title", "content" (HTML), "metaDescription" (max 160 c
     height: number;
     businessId?: number;
   }) => {
-    const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
-
     if (!env?.AI) {
       throw new Error("Workers AI not available");
     }

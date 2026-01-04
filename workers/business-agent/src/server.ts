@@ -6,6 +6,9 @@ import { AIChatAgent } from "agents/ai-chat-agent";
 
 // Export VoiceAgent for Durable Object binding
 export { VoiceAgent } from "./voice-agent";
+
+// Export Workflow for Workflow binding
+export { SocialPostWorkflow } from "./workflows";
 import {
   generateId,
   streamText,
@@ -184,34 +187,36 @@ AVAILABLE CAPABILITIES:
 **Content Management:**
 1. Update page components (hero, services, gallery, testimonials, etc.)
 2. Generate SEO-optimized blog posts
-3. Create social media content for Facebook, Instagram, Twitter
-   **Social Media Workflow (3 steps):**
-   - Step 1: Call generateSocialPostDraft to create post text
-   - Step 2: Call generateSocialImage to create AI image (auto-executes)
-   - Step 3: Call publishSocialPost with text and imageUrl (requires user confirmation)
+3. **Create social media content - MANDATORY 3-STEP WORKFLOW:**
 
-**AI Media Generation (via HuggingFace MCP):**
-4. Generate AI images using FLUX-LoRA, Stable Diffusion, or DALL-E (requires user approval)
-   - Perfect for: promotional graphics, social media posts, hero images, custom visuals
-   - Automatically stores in R2 and provides public URLs
-   - Supports custom dimensions and detailed prompts
-5. Generate videos using AI (short marketing videos) - coming soon
-6. Generate voice using AI (voice-overs, announcements) - coming soon
-7. Synthesize speech using AI (podcasts, accessibility) - coming soon
+   **STEP 1**: Call generateSocialPostDraft(businessName, platform, tone)
+   - Returns: { businessId, postText, message }
+   - Auto-executes, no confirmation needed
+
+   **STEP 2**: IMMEDIATELY call generateSocialImage(businessId, postText)
+   - Use businessId and postText from Step 1 result
+   - Returns: { imageUrl, imagePrompt, message }
+   - Auto-executes, no confirmation needed
+   - **CRITICAL**: You MUST call this after Step 1
+
+   **STEP 3**: Call publishSocialPost(postText, imageUrl, target)
+   - Use postText from Step 1 and imageUrl from Step 2
+   - Requires user confirmation before posting
+   - Show user the preview with BOTH text and image before confirming
 
 **Analytics & Optimization:**
-8. Optimize SEO (keywords, meta tags, schema markup)
-9. Schedule tasks for future execution
-10. Retrieve business information and analytics
+4. Optimize SEO (keywords, meta tags, schema markup)
+5. Schedule tasks for future execution
+6. Retrieve business information and analytics
 
 **Database Access:**
-11. List all database tables
-12. Query the database with read-only SQL (SELECT statements)
-13. Get table schemas and structures
-14. Access business data, listings, components, and more
+7. List all database tables
+8. Query the database with read-only SQL (SELECT statements)
+9. Get table schemas and structures
+10. Access business data, listings, components, and more
 
 **Specialized Agent Delegation:**
-15. Delegate complex SQL/database questions to the RAG agent (requires user approval)
+11. Delegate complex SQL/database questions to the RAG agent (requires user approval)
    - Use this for intelligent database queries beyond simple SELECTs
    - The RAG agent specializes in SQL analysis and complex data retrieval
    - You'll need user confirmation before delegating

@@ -17,11 +17,15 @@
     "db:seed:remote": "wrangler d1 execute kiamichi-biz-connect-db --remote --file=./seed.sql",
     "tail": "wrangler tail"
   },
-  "keywords": ["cloudflare", "workers", "business-directory"],
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "business-directory"
+  ],
   "author": "Southeast Remodeling Solutions",
   "license": "UNLICENSED",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251209.0",
-    "wrangler": "^4.53.0"
+    "wrangler": "^4.54.0"
   }
 }

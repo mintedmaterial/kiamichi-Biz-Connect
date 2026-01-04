@@ -5,7 +5,8 @@
 import { tool } from "ai";
 import { z } from "zod/v3";
 import type { Chat } from "../server";
-import { Agent, getCurrentAgent } from "agents";
+import { getCurrentAgent } from "agents";
+import { env } from "cloudflare:workers";
 
 /**
  * STEP 1: Generate social media post text
@@ -21,7 +22,6 @@ export const generateSocialPostDraft = tool({
   }),
   execute: async ({ businessName, platform, tone, includeHashtags }) => {
     const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
 
     if (!env?.DB || !env?.AI) {
       throw new Error("Database or AI not available");
@@ -112,15 +112,14 @@ Make it feel authentic and excited, like you're genuinely recommending this plac
  * Auto-executes without confirmation (just generates image, doesn't post)
  */
 export const generateSocialImage = tool({
-  description: "Generate an AI image for a social media post about a business. Creates professional photography-style images (NOT social media mockups).",
+  description: "STEP 2 of 3: Generate AI image for Facebook/Instagram post. ONLY use this IMMEDIATELY after generateSocialPostDraft. Pass businessId and postText from step 1 result. Auto-executes without user confirmation. Stores in R2 and returns imageUrl for step 3.",
   inputSchema: z.object({
-    businessId: z.number().describe("The business ID to generate an image for"),
-    postText: z.string().describe("The post text to base the image on"),
+    businessId: z.number().describe("businessId from generateSocialPostDraft result"),
+    postText: z.string().describe("postText from generateSocialPostDraft result"),
     style: z.enum(["photography", "illustration", "modern", "vintage"]).default("photography")
   }),
   execute: async ({ businessId, postText, style }) => {
     const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
 
     if (!env?.DB || !env?.AI || !env?.IMAGES) {
       throw new Error("Database, AI, or R2 storage not available");
@@ -276,9 +275,6 @@ export const facebookToolExecutions = {
     imageUrl?: string;
     target: "page" | "group" | "both";
   }) => {
-    const { agent } = getCurrentAgent<Chat>();
-    const env = agent?.env;
-
     if (!env?.DB) {
       throw new Error("Database not available");
     }

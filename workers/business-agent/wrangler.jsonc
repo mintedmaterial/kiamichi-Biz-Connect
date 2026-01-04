@@ -68,7 +68,7 @@
       "bucket_name": "kiamichi-business-assets"
     },
     {
-      "binding": "IMAGES",
+      "binding": "IMAGES", // Social_post_workflow use this bucket for images generated for social media
       "bucket_name": "kiamichi-biz-images"
     },
     {
@@ -96,6 +96,13 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["VoiceAgent"]
+    }
+  ],
+  "workflows": [
+    {
+      "binding": "SOCIAL_POST_WORKFLOW",
+      "name": "social-post-workflow",
+      "class_name": "SocialPostWorkflow"
     }
   ]
 }
