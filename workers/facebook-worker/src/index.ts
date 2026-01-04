@@ -934,9 +934,9 @@ async function processPendingPostsInternal(
   let lastGroupPostId: string | undefined;
 
   try {
-    // Get posts scheduled within ±5 minute window
-    const windowStart = now - 300; // 5 minutes ago
-    const windowEnd = now + 300; // 5 minutes from now
+    // Get posts scheduled within ±30 minute window
+    const windowStart = now - 1800; // 30 minutes ago
+    const windowEnd = now + 1800; // 30 minutes from now
 
     const pendingPosts = await db
       .prepare(`
