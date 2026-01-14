@@ -1,6 +1,7 @@
 name = "kiamichi-facebook-worker"
 main = "src/index.ts"
 compatibility_date = "2024-12-09"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
@@ -11,17 +12,51 @@ database_id = "e8b7b17a-a93b-4b61-92ad-80b488266e12"
 binding = "CACHE"
 id = "a5a33e270e4548548d43cf0554323e57"
 
+# R2 bucket for generated images
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "kiamichi-biz-images"
+
 # Workers AI binding
 [ai]
 binding = "AI"
 
+# Browser Rendering API for Facebook posting
+[browser]
+binding = "BROWSER"
+
+# Durable Object binding for persistent browser sessions
+[[durable_objects.bindings]]
+name = "BROWSER_SESSION"
+class_name = "BrowserSession"
+script_name = "kiamichi-facebook-worker"
+
+# Durable Object migrations
+[[migrations]]
+tag = "v1"
+new_classes = ["BrowserSession"]
+
 # Environment variables (place secrets via `wrangler secret put`)
 [vars]
-SITE_URL = "https://kiamichi-biz-connect.srvcflo.workers.dev"
+SITE_URL = "https://kiamichibizconnect.com"
+SESSION_LIFETIME_HOURS = "24"
+FB_PROFILE_ID = "61584739360040" # Personal profile (browser-only)
+FB_PAGE_ID = "930967626764484" # Kiamichi Biz Connect Page
+FB_GROUP_ID = "1304321945055195"
+FB_APP_ID = "879824491249046"
 
-# Run daily at 2 AM UTC for enrichment
+# Secrets (set via wrangler secret put):
+# - FB_EMAIL: Facebook account email for browser login
+# - FB_PASSWORD: Facebook account password for browser login
+
+# Post 3 times daily:
+# - 9 AM CST (3 PM UTC / 15:00)
+# - 4 PM CST (10 PM UTC / 22:00)
+# - 9 PM CST (3 AM UTC next day / 03:00)
+# Token refresh at 8 AM CST (2 PM UTC / 14:00) before first post
+# Analytics/enrichment at 2 AM UTC
 [triggers]
-crons = ["0 2 * * *"]
+crons = ["0 3,15,22 * * *", "0 2,14 * * *"]
 
 [observability]
 [observability.logs]

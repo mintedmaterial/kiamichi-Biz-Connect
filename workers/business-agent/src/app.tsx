@@ -4,7 +4,6 @@ import { useAgent } from "agents/react";
 import { isStaticToolUIPart } from "ai";
 import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
-import type { tools } from "./tools";
 
 // Component imports
 import { Button } from "@/components/button/Button";
@@ -14,6 +13,8 @@ import { Toggle } from "@/components/toggle/Toggle";
 import { Textarea } from "@/components/textarea/Textarea";
 import { MemoizedMarkdown } from "@/components/memoized-markdown";
 import { ToolInvocationCard } from "@/components/tool-invocation-card/ToolInvocationCard";
+import { PreviewPane } from "@/components/preview-pane/PreviewPane";
+import { PublishDialog } from "@/components/publish-dialog/PublishDialog";
 
 // Icon imports
 import {
@@ -30,7 +31,7 @@ import {
 
 // List of tools that require human confirmation
 // NOTE: this should match the tools that don't have execute functions in tools.ts
-const toolsRequiringConfirmation: (keyof typeof tools)[] = [
+const toolsRequiringConfirmation: string[] = [
   "getWeatherInformation"
 ];
 
@@ -43,6 +44,13 @@ export default function Chat() {
   const [showDebug, setShowDebug] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Preview pane state
+  const [businessId, setBusinessId] = useState<number | null>(null);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [showPublishDialog, setShowPublishDialog] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [showMobilePreview, setShowMobilePreview] = useState(false); // Mobile preview toggle
 
   // Voice agent state
   const [isVoiceConnected, setIsVoiceConnected] = useState(false);
@@ -77,10 +85,88 @@ export default function Chat() {
     scrollToBottom();
   }, [scrollToBottom]);
 
+  // Load business information on mount
+  useEffect(() => {
+    async function loadBusiness() {
+      try {
+        const response = await fetch("/api/my-business");
+        if (response.ok) {
+          const data = (await response.json()) as { businessId: number; name: string };
+          setBusinessId(data.businessId);
+          console.log("[App] Loaded business:", data.name, "ID:", data.businessId);
+        } else {
+          console.warn("[App] No business found for this session");
+        }
+      } catch (error) {
+        console.error("[App] Error loading business:", error);
+      }
+    }
+    loadBusiness();
+  }, []);
+
   const toggleTheme = () => {
     const newTheme = theme === "dark" ? "light" : "dark";
     setTheme(newTheme);
   };
+
+  // Preview pane handlers
+  const handleRefreshPreview = useCallback(() => {
+    setPreviewKey((prev) => prev + 1);
+  }, []);
+
+  const handlePublishClick = useCallback(() => {
+    setShowPublishDialog(true);
+  }, []);
+
+  const handlePublishConfirm = useCallback(async (createSnapshot: boolean) => {
+    setIsPublishing(true);
+    try {
+      const response = await fetch("/api/publish", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ createSnapshot })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log("[App] Published successfully:", result);
+
+        // Refresh preview to show published state
+        handleRefreshPreview();
+
+        // Show success message in chat
+        await sendMessage({
+          role: "user",
+          parts: [{ type: "text", text: "✅ Changes published successfully!" }]
+        });
+      } else {
+        const error = (await response.json()) as { message?: string };
+        console.error("[App] Publish failed:", error);
+
+        // Show error in chat
+        await sendMessage({
+          role: "user",
+          parts: [
+            {
+              type: "text",
+              text: `❌ Publish failed: ${error.message || "Unknown error"}`
+            }
+          ]
+        });
+      }
+    } catch (error) {
+      console.error("[App] Publish error:", error);
+      await sendMessage({
+        role: "user",
+        parts: [{ type: "text", text: `❌ Publish error: ${error}` }]
+      });
+    } finally {
+      setIsPublishing(false);
+      setShowPublishDialog(false);
+    }
+  }, [handleRefreshPreview]);
 
   // Initialize agent with default room name
   const agent = useAgent({
@@ -132,6 +218,31 @@ export default function Chat() {
   useEffect(() => {
     agentMessages.length > 0 && scrollToBottom();
   }, [agentMessages, scrollToBottom]);
+
+  // Listen for tool results with refreshPreview flag
+  useEffect(() => {
+    // Check the latest message for tool results with refreshPreview
+    if (agentMessages.length === 0) return;
+
+    const latestMessage = agentMessages[agentMessages.length - 1];
+    if (latestMessage.role !== "assistant") return;
+
+    // Check all parts for tool results
+    const hasRefreshFlag = latestMessage.parts?.some((part) => {
+      // Check if part has tool result data
+      if (part.type === "tool-result") {
+        const result = (part as any).result;
+        // Check if result has refreshPreview flag
+        return result && typeof result === "object" && result.refreshPreview === true;
+      }
+      return false;
+    });
+
+    if (hasRefreshFlag) {
+      console.log("[App] Tool returned refreshPreview, refreshing preview pane");
+      handleRefreshPreview();
+    }
+  }, [agentMessages, handleRefreshPreview]);
 
   const pendingToolCallConfirmation = agentMessages.some((m: UIMessage) =>
     m.parts?.some(
@@ -376,9 +487,13 @@ export default function Chat() {
   }, []);
 
   return (
-    <div className="h-screen w-full p-4 flex justify-center items-center bg-fixed overflow-hidden">
-      <div className="h-[calc(100vh-2rem)] w-full mx-auto max-w-lg flex flex-col shadow-xl rounded-md overflow-hidden relative border border-neutral-300 dark:border-neutral-800">
-        <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center gap-3 sticky top-0 z-10">
+    <div className="h-screen w-full flex overflow-hidden bg-neutral-100 dark:bg-neutral-950">
+      {/* Split-screen layout */}
+      <div className="flex w-full h-full">
+        {/* Left pane: Chat interface */}
+        <div className={`${showMobilePreview ? 'hidden' : 'flex'} lg:flex w-full lg:w-1/2 flex-col border-r border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900`}>
+          {/* Chat Header */}
+          <div className="px-4 py-3 border-b border-neutral-300 dark:border-neutral-800 flex items-center gap-3 sticky top-0 z-10 bg-white dark:bg-neutral-900">
           <div className="flex items-center justify-center h-8 w-8">
             <svg
               width="28px"
@@ -398,20 +513,34 @@ export default function Chat() {
           </div>
 
           <div className="flex-1">
-            <h2 className="font-semibold text-base">AI Chat Agent</h2>
+            <h2 className="font-semibold text-base">Edit Your Listing</h2>
+            <p className="text-xs text-muted-foreground">AI-powered business editor</p>
           </div>
 
           <div className="flex items-center gap-2 mr-2">
-            <BugIcon size={16} />
+            {/* Mobile preview toggle button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="lg:hidden"
+              onClick={() => setShowMobilePreview(!showMobilePreview)}
+              aria-label="Toggle preview"
+            >
+              {showMobilePreview ? "Chat" : "Preview"}
+            </Button>
+
+            <BugIcon size={16} className="hidden md:block" />
             <Toggle
               toggled={showDebug}
               aria-label="Toggle debug mode"
               onClick={() => setShowDebug((prev) => !prev)}
+              className="hidden md:block"
             />
           </div>
 
           <Button
             variant="ghost"
+            className="hidden md:block"
             size="md"
             shape="square"
             className="rounded-full h-9 w-9"
@@ -569,9 +698,7 @@ export default function Chat() {
                             const toolCallId = part.toolCallId;
                             const toolName = part.type.replace("tool-", "");
                             const needsConfirmation =
-                              toolsRequiringConfirmation.includes(
-                                toolName as keyof typeof tools
-                              );
+                              toolsRequiringConfirmation.includes(toolName);
 
                             return (
                               <ToolInvocationCard
@@ -701,7 +828,27 @@ export default function Chat() {
             </div>
           </div>
         </form>
+        </div>
+
+        {/* Right pane: Preview */}
+        <div className={`${showMobilePreview ? 'flex' : 'hidden'} lg:flex w-full lg:w-1/2 bg-neutral-50 dark:bg-neutral-950`}>
+          <PreviewPane
+            businessId={businessId}
+            previewKey={previewKey}
+            onPublish={handlePublishClick}
+            onRefresh={handleRefreshPreview}
+            isPublishing={isPublishing}
+          />
+        </div>
       </div>
+
+      {/* Publish Dialog */}
+      <PublishDialog
+        isOpen={showPublishDialog}
+        onClose={() => setShowPublishDialog(false)}
+        onConfirm={handlePublishConfirm}
+        isPublishing={isPublishing}
+      />
     </div>
   );
 }

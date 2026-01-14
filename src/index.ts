@@ -19,6 +19,7 @@ import {
   handleFacebookAdminLogin,
   handleFacebookAdminCallback
 } from './auth/facebook-admin';
+import { requireAdminAuth } from './auth/middleware';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -30,6 +31,80 @@ export default {
 
     // Router
     try {
+      // Robots.txt for search engine crawlers
+      if (path === '/robots.txt') {
+        return new Response(`# Robots.txt for KiamichiBizConnect
+# Allow all crawlers
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://kiamichibizconnect.com/sitemap.xml
+
+# Cloudflare AI Search Bot
+User-agent: CloudflareBot
+Allow: /
+
+# Specific paths for crawlers
+Allow: /business/*
+Allow: /category/*
+Allow: /blog/*
+
+# Block admin and API endpoints from crawlers
+Disallow: /admin
+Disallow: /api/*
+Disallow: /auth/*`, {
+          headers: {
+            'Content-Type': 'text/plain',
+            'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+            'CDN-Cache-Control': 'max-age=86400'
+          }
+        });
+      }
+
+      // Sitemap.xml for search engines and AI Search
+      if (path === '/sitemap.xml') {
+        return await handleSitemap(db, env);
+      }
+
+      // Serve images from R2 (social media images, blog images, etc.)
+      if (path.startsWith('/images/')) {
+        const imageKey = path.substring(8); // Remove '/images/' prefix
+
+        try {
+          const object = await env.IMAGES.get(imageKey);
+
+          if (!object) {
+            return new Response('Image not found', { status: 404 });
+          }
+
+          // Determine content type based on file extension
+          const extension = imageKey.split('.').pop()?.toLowerCase();
+          const contentTypeMap: Record<string, string> = {
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'svg': 'image/svg+xml'
+          };
+          const contentType = contentTypeMap[extension || 'png'] || 'application/octet-stream';
+
+          return new Response(object.body, {
+            headers: {
+              'Content-Type': contentType,
+              'Cache-Control': 'public, max-age=31536000, immutable', // Cache for 1 year (images don't change)
+              'CDN-Cache-Control': 'max-age=31536000',
+              'ETag': object.etag || ''
+            }
+          });
+        } catch (error: any) {
+          console.error('Error serving image from R2:', error);
+          return new Response('Error retrieving image', { status: 500 });
+        }
+      }
+
       // Homepage
       if (path === '/' || path === '') {
         return await handleHomepage(db, env);
@@ -92,6 +167,35 @@ export default {
       // Logout (works for both Google and Facebook)
       if (path === '/auth/logout') {
         return await handleLogout(request, env, db);
+      }
+
+      // Business Agent redirect (protected)
+      if (path === '/chat' || path === '/agent') {
+        const authResult = await requireAdminAuth(request, env, db);
+
+        if (!authResult.authorized) {
+          // Not authenticated - redirect to login
+          return Response.redirect(new URL('/auth/google/login', request.url).toString(), 302);
+        }
+
+        // Authenticated - get session ID and ensure cookie is set for subdomain
+        const cookies = request.headers.get('Cookie');
+        const sessionMatch = cookies?.match(/admin_session=([^;]+)/);
+
+        if (sessionMatch) {
+          const sessionId = sessionMatch[1];
+          // Redirect with cookie explicitly set for subdomain
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': 'https://app.kiamichibizconnect.com',
+              'Set-Cookie': `admin_session=${sessionId}; Domain=.kiamichibizconnect.com; HttpOnly; Secure; SameSite=None; Max-Age=86400; Path=/`
+            }
+          });
+        }
+
+        // Fallback redirect if no session found
+        return Response.redirect('https://app.kiamichibizconnect.com', 302);
       }
 
       // Admin panel (protected)
@@ -202,29 +306,293 @@ async function handleHomepage(db: DatabaseService, env: Env): Promise<Response> 
   });
 }
 
-// Search handler
+// Sitemap handler for search engines and AI Search
+async function handleSitemap(db: DatabaseService, env: Env): Promise<Response> {
+  const siteUrl = env.SITE_URL || 'https://kiamichibizconnect.com';
+
+  // Try to get cached sitemap from KV (cache for 1 hour)
+  const cacheKey = 'sitemap:xml';
+  const cached = await env.CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      headers: {
+        'Content-Type': 'application/xml',
+        'Cache-Control': 'public, max-age=3600',
+        'CDN-Cache-Control': 'max-age=3600',
+        'X-Cache': 'HIT'
+      }
+    });
+  }
+
+  // Get all active businesses
+  const businesses = await db.db.prepare(`
+    SELECT slug, updated_at FROM businesses
+    WHERE is_active = 1
+    ORDER BY updated_at DESC
+  `).all();
+
+  // Get all categories
+  const categories = await db.getAllCategories();
+
+  // Get all published blog posts
+  const blogPosts = await db.db.prepare(`
+    SELECT slug, updated_at FROM blog_posts
+    WHERE is_published = 1
+    ORDER BY updated_at DESC
+  `).all();
+
+  // Build sitemap XML
+  let sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Homepage -->
+  <url>
+    <loc>${siteUrl}/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+    <lastmod>${new Date().toISOString()}</lastmod>
+  </url>
+
+  <!-- Categories Page -->
+  <url>
+    <loc>${siteUrl}/categories</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Blog Page -->
+  <url>
+    <loc>${siteUrl}/blog</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Submit Page -->
+  <url>
+    <loc>${siteUrl}/submit</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+`;
+
+  // Add all categories
+  for (const category of categories) {
+    sitemap += `  <url>
+    <loc>${siteUrl}/category/${category.slug}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+`;
+  }
+
+  // Add all businesses
+  if (businesses.results) {
+    for (const business of businesses.results) {
+      const lastmod = business.updated_at
+        ? new Date(business.updated_at * 1000).toISOString()
+        : new Date().toISOString();
+
+      sitemap += `  <url>
+    <loc>${siteUrl}/business/${business.slug}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+    <lastmod>${lastmod}</lastmod>
+  </url>
+`;
+    }
+  }
+
+  // Add all blog posts
+  if (blogPosts.results) {
+    for (const post of blogPosts.results) {
+      const lastmod = post.updated_at
+        ? new Date(post.updated_at * 1000).toISOString()
+        : new Date().toISOString();
+
+      sitemap += `  <url>
+    <loc>${siteUrl}/blog/${post.slug}</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <lastmod>${lastmod}</lastmod>
+  </url>
+`;
+    }
+  }
+
+  sitemap += `</urlset>`;
+
+  // Store in KV cache for 1 hour
+  await env.CACHE.put(cacheKey, sitemap, { expirationTtl: 3600 });
+
+  return new Response(sitemap, {
+    headers: {
+      'Content-Type': 'application/xml',
+      'Cache-Control': 'public, max-age=3600',
+      'CDN-Cache-Control': 'max-age=3600',
+      'X-Cache': 'MISS'
+    }
+  });
+}
+
+// Search handler with AI Search integration
 async function handleSearch(request: Request, db: DatabaseService, env: Env): Promise<Response> {
   const url = new URL(request.url);
-  const query = url.searchParams.get('q') || '';
-  const category = url.searchParams.get('category') || '';
+  let query = url.searchParams.get('q') || '';
+  let category = url.searchParams.get('category') || '';
   const city = url.searchParams.get('city') || '';
 
+  // Extract category from natural language query if not explicitly set
+  if (!category && query) {
+    const categoryKeywords: Record<string, string> = {
+      'home services': 'home-services',
+      'automotive': 'automotive',
+      'restaurant': 'food-dining',
+      'food': 'food-dining',
+      'dining': 'food-dining',
+      'health': 'health-wellness',
+      'fitness': 'health-wellness',
+      'beauty': 'beauty-personal-care',
+      'salon': 'beauty-personal-care',
+      'professional': 'professional-services',
+      'real estate': 'real-estate-property',
+      'retail': 'retail-shopping',
+      'shopping': 'retail-shopping',
+      'education': 'education-training',
+      'entertainment': 'entertainment-recreation'
+    };
+
+    const lowerQuery = query.toLowerCase();
+    for (const [keyword, slug] of Object.entries(categoryKeywords)) {
+      if (lowerQuery.includes(keyword)) {
+        category = slug;
+        // Remove stop words for better database search
+        query = query.replace(/\b(best|good|great|top|find|near me|looking for)\b/gi, '').trim();
+        break;
+      }
+    }
+  }
+
+  // Always run database search
   const results = await db.searchBusinesses({ query, category, city, limit: 20 });
   const categories = await db.getAllCategories();
+
+  // Check if query is a natural language question
+  const isNaturalLanguage = query.length > 15 || /\b(what|where|who|when|why|how|best|find|looking for|need|recommend|suggest)\b/i.test(query);
+
+  let aiAnswer = '';
+  let aiBusinessLinks: Array<{name: string, url: string, description: string}> = [];
+  if (isNaturalLanguage) {
+    try {
+      // Call NLWeb AI Search worker
+      const nlwebResponse = await fetch('https://purple-snow-f107-nlweb.srvcflo.workers.dev/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+
+      if (nlwebResponse.ok) {
+        const text = await nlwebResponse.text();
+
+        // Parse streaming response to extract results
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+              if (data.message_type === 'result_batch' && data.results) {
+                const rawResults = data.results.filter((r: any) =>
+                  r.url && r.url.includes('/business/')
+                ).slice(0, 5); // Top 5 business pages only
+
+                // Extract clean business info from URLs
+                for (const result of rawResults) {
+                  try {
+                    const urlPath = result.url;
+                    const slug = urlPath.split('/business/').pop()?.split('?')[0];
+
+                    if (slug && slug.length > 0 && !slug.includes('/')) {
+                      // Get business from database for clean info
+                      const business = await db.db.prepare('SELECT * FROM businesses WHERE slug = ? AND is_active = 1').bind(slug).first();
+
+                      if (business) {
+                        aiBusinessLinks.push({
+                          name: business.name,
+                          url: `/business/${slug}`,
+                          businesses: business.description || `${business.name} in ${business.city}, ${business.state}`
+                        });
+                      }
+                    }
+                  } catch (err) {
+                    console.error('Error processing AI result:', err);
+                  }
+                }
+
+                // Generate clean answer with links
+                if (aiBusinessLinks.length > 0) {
+                  aiAnswer = `Based on your search, I found ${aiBusinessLinks.length} relevant businesses:`;
+                }
+              }
+            } catch (e) {
+              console.error('AI parse error:', e);
+              // Skip malformed JSON lines
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('AI Search error:', error);
+      // Continue without AI answer if it fails
+    }
+  }
 
   const content = `
     <div class="container mx-auto px-4 py-8">
       <h1 class="text-3xl font-bold mb-6">Search Results</h1>
-      
-      ${results.data.length === 0 ? `
-        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center">
-          <p class="text-xl text-gray-700">No businesses found matching your search.</p>
-          <p class="text-gray-600 mt-2">Try adjusting your search criteria or <a href="/" class="text-[#ED5409] underline">browse all categories</a></p>
+
+      ${aiAnswer && aiBusinessLinks.length > 0 ? `
+        <div class="glow-card rounded-xl p-6 mb-8 border-2 border-[#FFCB67]/30">
+          <div class="flex items-start gap-3 mb-4">
+            <span class="text-2xl">🤖</span>
+            <div class="flex-1">
+              <h2 class="text-xl font-bold text-[#FFCB67] mb-2">AI Assistant</h2>
+              <p class="text-gray-300 mb-4">${aiAnswer}</p>
+
+              <div class="grid grid-cols-1 gap-3">
+                ${aiBusinessLinks.map((biz, i) => `
+                  <a href="${biz.url}" class="block bg-gray-800/50 hover:bg-gray-700/50 rounded-lg p-4 transition-all border border-[#FFCB67]/20 hover:border-[#FFCB67]/50">
+                    <div class="flex items-start gap-3">
+                      <span class="text-[#FFCB67] font-bold text-lg">${i + 1}.</span>
+                      <div class="flex-1">
+                        <h3 class="text-lg font-bold text-gray-100 mb-1">${biz.name}</h3>
+                        <p class="text-gray-400 text-sm line-clamp-2">${biz.description}</p>
+                        <span class="text-[#ED5409] text-sm mt-2 inline-block hover:underline">View Details →</span>
+                      </div>
+                    </div>
+                  </a>
+                `).join('')}
+              </div>
+            </div>
+          </div>
         </div>
-      ` : `
+      ` : ''}
+
+      ${aiAnswer && aiBusinessLinks.length > 0 && results.data.length > 0 ? `
+        <h2 class="text-xl font-bold mb-4 text-gray-300 flex items-center gap-2">
+          <span>More Businesses</span>
+          <span class="text-sm text-gray-500 font-normal">(${results.data.length} total results)</span>
+        </h2>
+      ` : results.data.length > 0 ? `
+        <h2 class="text-xl font-bold mb-4 text-gray-300">Business Listings</h2>
+      ` : ''}
+
+      ${results.data.length === 0 && aiBusinessLinks.length === 0 ? `
+        <div class="glow-card rounded-lg p-8 text-center">
+          <p class="text-xl text-gray-300">No businesses found matching your search.</p>
+          <p class="text-gray-400 mt-2">Try adjusting your search criteria or <a href="/" class="text-[#ED5409] underline">browse all categories</a></p>
+        </div>
+      ` : results.data.length > 0 ? `
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           ${results.data.map(business => `
-            <a href="/business/${business.slug}" class="card-hover bg-white rounded-xl shadow-lg overflow-hidden">
+            <a href="/business/${business.slug}" class="card-hover glow-card rounded-xl overflow-hidden">
               <div class="h-40 bg-gradient-to-br from-[#FFCB67] to-[#FFA59D] flex items-center justify-center relative overflow-hidden">
                 ${business.image_url ?
                   `<img src="${business.image_url}" alt="${business.name}" class="w-full h-full object-cover">` :
@@ -235,21 +603,21 @@ async function handleSearch(request: Request, db: DatabaseService, env: Env): Pr
                 }
               </div>
               <div class="p-4">
-                <h3 class="text-lg font-bold text-gray-800 mb-1">${business.name}</h3>
-                <p class="text-gray-600 text-sm mb-2">${business.city}, ${business.state}</p>
-                ${business.description ? `<p class="text-gray-700 text-sm mb-3 line-clamp-2">${business.description}</p>` : ''}
+                <h3 class="text-lg font-bold text-gray-100 mb-1">${business.name}</h3>
+                <p class="text-gray-400 text-sm mb-2">${business.city}, ${business.state}</p>
+                ${business.description ? `<p class="text-gray-300 text-sm mb-3 line-clamp-2">${business.description}</p>` : ''}
                 <div class="flex items-center">
                   ${business.google_rating ? `
                     <span class="text-yellow-400">⭐</span>
-                    <span class="ml-1 font-semibold">${business.google_rating.toFixed(1)}</span>
-                    <span class="ml-1 text-gray-500 text-sm">(${business.google_review_count || 0})</span>
-                  ` : '<span class="text-gray-500 text-sm">No reviews yet</span>'}
+                    <span class="ml-1 font-semibold text-primary">${business.google_rating.toFixed(1)}</span>
+                    <span class="ml-1 text-secondary text-sm">(${business.google_review_count || 0})</span>
+                  ` : '<span class="text-secondary text-sm">No reviews yet</span>'}
                 </div>
               </div>
             </a>
           `).join('')}
         </div>
-      `}
+      ` : ''}
     </div>
   `;
 
@@ -1316,6 +1684,65 @@ async function handleAPI(path: string, request: Request, db: DatabaseService, en
     const category = url.searchParams.get('category') || '';
     const results = await db.searchBusinesses({ query, category });
     return Response.json(results);
+  }
+
+  // API: AI Search (natural language)
+  if (path === '/api/ai-search') {
+    const url = new URL(request.url);
+    const query = url.searchParams.get('q') || '';
+
+    if (!query) {
+      return Response.json({ error: 'Query parameter required' }, { status: 400 });
+    }
+
+    try {
+      // Call NLWeb AI Search worker
+      const nlwebResponse = await fetch('https://purple-snow-f107-nlweb.srvcflo.workers.dev/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+
+      if (!nlwebResponse.ok) {
+        throw new Error(`NLWeb returned ${nlwebResponse.status}`);
+      }
+
+      const text = await nlwebResponse.text();
+      let results: any[] = [];
+
+      // Parse streaming response to extract results
+      const lines = text.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.substring(6));
+            if (data.message_type === 'result_batch' && data.results) {
+              results = data.results;
+              break;
+            }
+          } catch (e) {
+            // Skip malformed JSON lines
+          }
+        }
+      }
+
+      return Response.json({
+        query,
+        results: results.slice(0, 5).map(r => ({
+          name: r.name,
+          url: r.url,
+          description: r.description?.substring(0, 200),
+          score: r.score
+        })),
+        total: results.length
+      });
+    } catch (error: any) {
+      console.error('AI Search API error:', error);
+      return Response.json({
+        error: 'AI Search failed',
+        message: error.message
+      }, { status: 500 });
+    }
   }
 
   // API: Get stats
