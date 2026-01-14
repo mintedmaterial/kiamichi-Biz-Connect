@@ -25,8 +25,11 @@ import {
   handleMcpDisconnect
 } from "./mcp-handlers";
 
-// Using OpenAI for now - will switch to Workers AI later
-const model = openai("gpt-4o-mini");
+// Using Cloudflare Workers AI - no API key needed
+const cloudflare = createCloudflare({
+  apiKey: process.env.CLOUDFLARE_WORKERS_AI_TOKEN || ""
+});
+const model = cloudflare("@cf/meta/llama-4-scout-17b-16e-instruct");
 
 /**
  * Chat Agent implementation that handles real-time AI chat interactions
