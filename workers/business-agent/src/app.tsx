@@ -15,6 +15,7 @@ import { MemoizedMarkdown } from "@/components/memoized-markdown";
 import { ToolInvocationCard } from "@/components/tool-invocation-card/ToolInvocationCard";
 import { PreviewPane } from "@/components/preview-pane/PreviewPane";
 import { PublishDialog } from "@/components/publish-dialog/PublishDialog";
+import { AtlasLiveView } from "@/components/atlas/AtlasLiveView";
 
 // Icon imports
 import {
@@ -42,6 +43,7 @@ export default function Chat() {
     return (savedTheme as "dark" | "light") || "dark";
   });
   const [showDebug, setShowDebug] = useState(false);
+  const [showAtlasLive, setShowAtlasLive] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -536,6 +538,15 @@ export default function Chat() {
               onClick={() => setShowDebug((prev) => !prev)}
               className="hidden md:block"
             />
+            
+            {/* Atlas Live View toggle */}
+            <span className="text-lg hidden md:block">🌳</span>
+            <Toggle
+              toggled={showAtlasLive}
+              aria-label="Toggle Atlas Live View"
+              onClick={() => setShowAtlasLive((prev) => !prev)}
+              className="hidden md:block"
+            />
           </div>
 
           <Button
@@ -849,6 +860,28 @@ export default function Chat() {
         onConfirm={handlePublishConfirm}
         isPublishing={isPublishing}
       />
+
+      {/* Atlas Live View Panel */}
+      {showAtlasLive && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
+          <div className="absolute right-0 top-0 bottom-0 w-full lg:w-2/3 xl:w-1/2 bg-gray-900 shadow-2xl overflow-hidden flex flex-col">
+            {/* Close button */}
+            <div className="absolute top-4 right-4 z-10">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAtlasLive(false)}
+                className="rounded-full"
+              >
+                ✕
+              </Button>
+            </div>
+            
+            {/* Atlas Live View */}
+            <AtlasLiveView />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

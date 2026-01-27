@@ -4,8 +4,9 @@ import { getSchedulePrompt } from "agents/schedule";
 
 import { AIChatAgent } from "agents/ai-chat-agent";
 
-// Export VoiceAgent for Durable Object binding
+// Export VoiceAgent and AtlasLive for Durable Object binding
 export { VoiceAgent } from "./voice-agent";
+export { AtlasLive } from "./atlas-live";
 import {
   generateId,
   streamText,
@@ -478,6 +479,18 @@ export default {
       const voiceAgentId = env.VoiceAgent.idFromName("default");
       const voiceAgent = env.VoiceAgent.get(voiceAgentId);
       return voiceAgent.fetch(request);
+    }
+
+    // Atlas Live Endpoints
+    if (url.pathname.startsWith("/api/atlas/live")) {
+      // Route to AtlasLive Durable Object
+      const atlasLiveId = env.AtlasLive.idFromName("default");
+      const atlasLive = env.AtlasLive.get(atlasLiveId);
+      // Remove the /api/atlas/live prefix and forward the rest
+      const newUrl = new URL(request.url);
+      newUrl.pathname = newUrl.pathname.replace("/api/atlas/live", "");
+      const newRequest = new Request(newUrl, request);
+      return atlasLive.fetch(newRequest);
     }
 
     // Root path: Let routeAgentRequest handle it (it will serve the frontend)

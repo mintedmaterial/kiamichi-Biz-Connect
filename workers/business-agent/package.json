@@ -13,8 +13,7 @@
     "test:unit": "vitest --config vitest.unit.config.ts",
     "types": "wrangler types env.d.ts --include-runtime false",
     "format": "prettier --write .",
-    "check": "prettier . --check && biome lint && tsc",
-    "postinstall": "patch-package"
+    "check": "prettier . --check && biome lint && tsc"
   },
   "keywords": [
     "cloudflare",
@@ -55,6 +54,7 @@
     "ai": "^6.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.29.2",
     "handlebars": "^4.7.8",
     "marked": "^17.0.1",
     "react": "^19.2.3",
