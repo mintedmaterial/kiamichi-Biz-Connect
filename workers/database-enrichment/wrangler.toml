@@ -1,0 +1,12 @@
+name = "kbc-database-enrichment"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kiamichi-biz-connect-db"
+database_id = "c2cf749a-cc06-4864-b0cb-57f7e8a7e40e"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "atlas-collab-pub"

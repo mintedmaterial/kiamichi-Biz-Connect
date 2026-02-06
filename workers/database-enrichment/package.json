@@ -1,0 +1,23 @@
+{
+  "name": "@kbc/database-enrichment",
+  "version": "1.0.0",
+  "description": "Database enrichment worker for KBC email extraction",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "enrich": "node src/enrich.js"
+  },
+  "dependencies": {
+    "fuzzball": "^2.1.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240117.0",
+    "@types/node": "^20.11.0",
+    "vitest": "^1.2.0",
+    "wrangler": "^3.22.4"
+  }
+}

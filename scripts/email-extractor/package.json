@@ -1,0 +1,28 @@
+{
+  "name": "@kbc/email-extractor",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Extract emails from business websites for KBC marketing",
+  "main": "dist/main.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "tsc",
+    "extract": "tsx src/main.ts",
+    "extract:build": "tsc && node dist/main.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "email-validator": "^2.0.4",
+    "node-fetch": "^3.3.2",
+    "papaparse": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/papaparse": "^5.3.14",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  }
+}
