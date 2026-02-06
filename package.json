@@ -15,12 +15,21 @@
     "db:schema:remote": "wrangler d1 execute kiamichi-biz-connect-db --remote --file=./schema.sql",
     "db:seed:local": "wrangler d1 execute kiamichi-biz-connect-db --local --file=./seed.sql",
     "db:seed:remote": "wrangler d1 execute kiamichi-biz-connect-db --remote --file=./seed.sql",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
   },
-  "keywords": ["cloudflare", "workers", "business-directory"],
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "business-directory"
+  ],
   "author": "Southeast Remodeling Solutions",
   "license": "UNLICENSED",
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
     "@cloudflare/workers-types": "^4.20251209.0",
     "wrangler": "^4.53.0"
   }

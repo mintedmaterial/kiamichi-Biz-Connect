@@ -95,6 +95,35 @@ npm run deploy
 npx wrangler deploy
 ```
 
+## 🔄 Development Workflow
+
+This project uses [Changesets](https://github.com/changesets/changesets) for automated versioning and changelog generation.
+
+### Making Changes
+
+1. Make your code changes
+2. Add a changeset:
+   ```bash
+   npm run changeset
+   ```
+3. Follow the prompts to describe your changes:
+   - Choose version bump type (patch/minor/major)
+   - Write a summary (becomes CHANGELOG entry)
+4. Commit the changeset file with your changes
+
+### Releasing
+
+1. Merge PR to `main`
+2. GitHub Action automatically creates "Version Packages" PR
+3. Review the version bumps and CHANGELOG
+4. Merge "Version Packages" PR → Automatic deployment to Cloudflare
+
+### Version Types
+
+- **patch** (1.0.0 → 1.0.1) - Bug fixes, minor improvements
+- **minor** (1.0.0 → 1.1.0) - New features, backwards compatible
+- **major** (1.0.0 → 2.0.0) - Breaking changes
+
 ## 📁 Project Structure
 
 ```
