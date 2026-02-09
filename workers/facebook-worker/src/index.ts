@@ -14,6 +14,8 @@ import { populateContentQueue, getQueueStatus, getAnalyticsSummary } from '../..
 import type { FacebookContentQueue } from '../../../src/types';
 import { postToPage as officialPostToPage, postToGroup as officialPostToGroup } from './fb-official-api';
 import { processComments } from '../../../src/facebook-comment-monitor';
+import { rotateFeaturedBusinesses, getFeaturedStatus, manuallyFeatureBusiness, lockSlot, unlockSlot, getFeaturedTierMembers, addToFeaturedTier, removeFromFeaturedTier } from './featured-rotation';
+import { generateVIPPost, getVIPBusinessesForPosting, processVIPBusinesses } from './vip-posts';
 
 // Export BrowserSession Durable Object
 export { BrowserSession } from './browser-session';
@@ -680,6 +682,56 @@ The image should look like authentic professional business photography, NOT a so
       }
 
       // Data deletion callback required by Facebook App Review
+      // === FEATURED ROTATION ENDPOINTS ===
+      if (path === '/featured/status' && request.method === 'GET') {
+        const status = await getFeaturedStatus(env);
+        return new Response(JSON.stringify(status), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/featured/rotate' && request.method === 'POST') {
+        const result = await rotateFeaturedBusinesses(env);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/featured/set' && request.method === 'POST') {
+        const body: any = await request.json();
+        const result = await manuallyFeatureBusiness(env, body.slot_position, body.business_id);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/featured/lock' && request.method === 'POST') {
+        const body: any = await request.json();
+        const result = await lockSlot(env, body.slot_position);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/featured/unlock' && request.method === 'POST') {
+        const body: any = await request.json();
+        const result = await unlockSlot(env, body.slot_position);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/featured/tier' && request.method === 'GET') {
+        const members = await getFeaturedTierMembers(env);
+        return new Response(JSON.stringify(members), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/featured/tier/add' && request.method === 'POST') {
+        const body: any = await request.json();
+        const result = await addToFeaturedTier(env, body.business_id, body.tier_level || 'free', body.notes);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/featured/tier/remove' && request.method === 'POST') {
+        const body: any = await request.json();
+        const result = await removeFromFeaturedTier(env, body.business_id);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // === VIP ENDPOINTS ===
+      if (path === '/vip/businesses' && request.method === 'GET') {
+        const businesses = await getVIPBusinessesForPosting(env);
+        return new Response(JSON.stringify(businesses), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (path === '/vip/post' && request.method === 'POST') {
+        const body: any = await request.json();
+        const result = await generateVIPPost(env, body.business_id);
+        return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+      }
+
       if (path === '/data-deletion') {
         if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
         try {
@@ -760,8 +812,33 @@ The image should look like authentic professional business photography, NOT a so
       const isTokenRefreshHour = currentHour === 14;
       const isAnalyticsHour = currentHour === 2;
 
+      const isRotationHour = currentHour === 0; // Midnight UTC = 6 PM CST
+      const isVipPostHour = currentHour === 15; // 3 PM UTC = 9 AM CST
+
       console.log(`Scheduled run starting at ${new Date().toISOString()} (Hour: ${currentHour} UTC)`);
       console.log(`Is posting hour: ${isPostingHour}, Is token refresh hour: ${isTokenRefreshHour}, Is analytics hour: ${isAnalyticsHour}`);
+
+      // FEATURED ROTATION: Midnight UTC (6 PM CST) daily
+      if (isRotationHour) {
+        console.log('[Rotation] Running daily featured business rotation...');
+        try {
+          const rotationResult = await rotateFeaturedBusinesses(env);
+          console.log(`[Rotation] ✓ Complete: ${rotationResult.rotated} rotated, ${rotationResult.skipped} skipped`);
+        } catch (rotationError: any) {
+          console.error('[Rotation] ✗ Failed:', rotationError.message);
+        }
+      }
+
+      // VIP POSTS: 3 PM UTC (9 AM CST) daily — unique content for family businesses
+      if (isVipPostHour) {
+        console.log('[VIP] Running daily VIP business posts...');
+        try {
+          const vipResult = await processVIPBusinesses(env);
+          console.log(`[VIP] ✓ Processed: ${vipResult.posted} posted, ${vipResult.failed} failed`);
+        } catch (vipError: any) {
+          console.error('[VIP] ✗ Failed to get VIP businesses:', vipError.message);
+        }
+      }
 
       // TOKEN REFRESH: 2 PM UTC (8 AM CST) daily before first post
       if (isTokenRefreshHour) {
