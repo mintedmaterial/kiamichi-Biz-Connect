@@ -30,6 +30,7 @@ const BIGFOOT_MASCOT: MascotConfig = {
  */
 export async function generateBusinessImageWithMascot(
   env: Env,
+  businessId: number,
   businessType: string,
   location: string,
   businessName: string,
@@ -97,15 +98,14 @@ export async function generateBusinessImageWithMascot(
       
       await env.DB.prepare(`
         INSERT INTO social_media_images 
-        (image_key, image_url, image_prompt, business_id, content_type, platform, generated_at, model, width, height, is_approved, quality_score, created_at)
-        VALUES (?, ?, ?, ?, 'business_highlight', 'facebook', ?, 'flux-1-dev', 1024, 1024, 1, 85, ?)
+        (image_key, image_url, image_prompt, business_id, content_type, platform, generated_at, model, width, height, is_approved, quality_score)
+        VALUES (?, ?, ?, ?, 'business_highlight', 'facebook', ?, 'flux-1-dev', 1024, 1024, 1, 85)
       `).bind(
         imageKey,
         imageUrl,
         imagePrompt,
-        businessId, // You'll need to pass this
-        new Date().toISOString(),
-        new Date().toISOString()
+        businessId,
+        timestamp
       ).run();
       
       console.log("[Mascot Image] Generated and stored:", imageKey);
@@ -184,6 +184,7 @@ export async function generateBusinessSpotlightWithMascot(
   if (includeMascotInImage) {
     imageUrl = await generateBusinessImageWithMascot(
       env,
+      business.id,
       business.description || 'local business',
       business.city || 'Southeast Oklahoma',
       business.name,
