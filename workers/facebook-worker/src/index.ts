@@ -918,6 +918,10 @@ async function postViaBrowserSession(
   }
 }
 
+/**
+ * Process pending posts scheduled for now or earlier (overdue posts)
+ * This ensures all due posts get published regardless of exact timing
+ */
 async function processPendingPostsInternal(
   env: any,
   now: number
@@ -934,19 +938,16 @@ async function processPendingPostsInternal(
   let lastGroupPostId: string | undefined;
 
   try {
-    // Get posts scheduled within ±30 minute window
-    const windowStart = now - 1800; // 30 minutes ago
-    const windowEnd = now + 1800; // 30 minutes from now
-
+    // Process all posts that are scheduled for now or earlier (overdue posts)
+    // This ensures all due posts get published regardless of exact timing
     const pendingPosts = await db
       .prepare(`
         SELECT * FROM facebook_content_queue
         WHERE status = 'pending'
-        AND scheduled_for >= ?
         AND scheduled_for <= ?
         ORDER BY priority DESC, scheduled_for ASC
       `)
-      .bind(windowStart, windowEnd)
+      .bind(now)
       .all();
 
     for (const post of pendingPosts.results as FacebookContentQueue[]) {
@@ -981,6 +982,7 @@ async function processPendingPostsInternal(
           const groupResponse = await officialPostToGroup(groupId, groupToken, {
             message: post.message,
             link: post.link || undefined
+            // Note: Groups don't support image uploads via API, only links
           });
 
           if (!groupResponse.success) {
@@ -992,99 +994,53 @@ async function processPendingPostsInternal(
           console.log(`Posted to Group via Official API: ${groupPostId}`);
         }
 
-        // Update queue status to posted
+        // Update queue status to 'posted'
         await db
-          .prepare(`
-            UPDATE facebook_content_queue
-            SET status = 'posted',
-                posted_at = ?,
-                page_post_id = ?,
-                group_post_id = ?
-            WHERE id = ?
-          `)
-          .bind(now, pagePostId, groupPostId, post.id)
+          .prepare(`UPDATE facebook_content_queue SET status = 'posted', posted_at = ? WHERE id = ?`)
+          .bind(now, post.id)
           .run();
 
-        // Track in posted_content table for deduplication
-        if (post.business_id) {
-          await db
-            .prepare(`
-              INSERT INTO facebook_posted_content
-              (content_type, content_id, target_type, queue_id)
-              VALUES ('business_spotlight', ?, ?, ?)
-            `)
-            .bind(post.business_id, post.target_type, post.id)
-            .run();
-        } else if (post.blog_post_id) {
-          await db
-            .prepare(`
-              INSERT INTO facebook_posted_content
-              (content_type, content_id, target_type, queue_id)
-              VALUES ('blog_share', ?, ?, ?)
-            `)
-            .bind(post.blog_post_id, post.target_type, post.id)
-            .run();
-        } else if (post.category_id) {
-          await db
-            .prepare(`
-              INSERT INTO facebook_posted_content
-              (content_type, content_id, target_type, queue_id)
-              VALUES ('category_highlight', ?, ?, ?)
-            `)
-            .bind(post.category_id, post.target_type, post.id)
-            .run();
-        }
-
-        // Create initial analytics records
-        if (pagePostId) {
-          await db
-            .prepare(`
-              INSERT INTO facebook_post_analytics
-              (queue_id, post_id, target_type)
-              VALUES (?, ?, 'page')
-            `)
-            .bind(post.id, pagePostId)
-            .run();
-        }
-
-        if (groupPostId) {
-          await db
-            .prepare(`
-              INSERT INTO facebook_post_analytics
-              (queue_id, post_id, target_type)
-              VALUES (?, ?, 'group')
-            `)
-            .bind(post.id, groupPostId)
-            .run();
-        }
+        // Track in posted content table for deduplication
+        await db
+          .prepare(`
+            INSERT INTO facebook_posted_content (content_type, content_id, posted_at, page_post_id, group_post_id, social_image_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `)
+          .bind(
+            post.content_type,
+            post.content_type === 'business_spotlight' ? post.business_id :
+            post.content_type === 'blog_share' ? post.blog_post_id :
+            post.content_type === 'category_highlight' ? post.category_id : null,
+            now,
+            pagePostId,
+            groupPostId,
+            post.social_image_id
+          )
+          .run();
 
         posted++;
-        await delayForRateLimit();
-      } catch (error: any) {
-        console.error(`Failed to post queue item ${post.id}:`, error);
+        console.log(`Successfully posted content ID ${post.id} (${post.content_type})`);
 
-        // Mark as failed
+      } catch (error: any) {
+        failed++;
+        console.error(`Failed to post content ID ${post.id}:`, error.message);
+        
+        // Update queue status to 'failed'
         await db
-          .prepare(`
-            UPDATE facebook_content_queue
-            SET status = 'failed',
-                error_message = ?
-            WHERE id = ?
-          `)
+          .prepare(`UPDATE facebook_content_queue SET status = 'failed', error_message = ? WHERE id = ?`)
           .bind(error.message, post.id)
           .run();
-
-        failed++;
       }
     }
 
+    console.log(`Queue processing complete. Posted: ${posted}, Failed: ${failed}`);
     return { posted, failed, pagePostId: lastPagePostId, groupPostId: lastGroupPostId };
+
   } catch (error: any) {
-    console.error('Error processing pending posts:', error);
-    return { posted, failed, pagePostId: lastPagePostId, groupPostId: lastGroupPostId };
+    console.error('Error processing pending posts:', error.message);
+    return { posted, failed };
   }
 }
-
 /**
  * Monitor recent posts for comments and auto-respond (runs every 2 hours)
  */
