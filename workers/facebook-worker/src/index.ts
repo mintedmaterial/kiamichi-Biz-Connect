@@ -732,6 +732,132 @@ The image should look like authentic professional business photography, NOT a so
         return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
       }
 
+      // === SAGE AUTO-POST ENDPOINT ===
+      // Called by Sage's cron jobs for automated posting
+      if (path === '/api/facebook/auto-post' && request.method === 'POST') {
+        try {
+          const body: any = await request.json().catch(() => ({}));
+          const postType = body.type || 'spotlight'; // spotlight, update, night
+          
+          console.log(`[Auto-Post] Triggered for type: ${postType}`);
+          
+          // Select a business based on post type
+          let business: any = null;
+          let message = '';
+          let link = '';
+          
+          if (postType === 'spotlight') {
+            // Select business with least posts, prioritize those never featured
+            const selectResult = await env.DB.prepare(`
+              SELECT b.*, 
+                COALESCE(b.facebook_post_count, 0) as post_count,
+                c.name as category_name
+              FROM businesses b
+              LEFT JOIN categories c ON b.category_id = c.id
+              WHERE b.is_active = 1
+              ORDER BY COALESCE(b.facebook_post_count, 0) ASC, RANDOM()
+              LIMIT 1
+            `).first();
+            
+            if (!selectResult) {
+              return new Response(JSON.stringify({ 
+                success: false, 
+                error: 'No businesses available for posting' 
+              }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+            }
+            
+            business = selectResult;
+            
+            // Generate content with mascot using Workers AI
+            const systemPrompt = `You are a friendly, enthusiastic local community member in Southeast Oklahoma. Write a brief (60-100 words) Facebook post spotlighting a local business. Sound like you're texting a friend - use contractions, be warm and genuine. Include a natural reference to Bigfoot Jr. (our local mascot). NO hashtags, NO emoji spam. Start with a hook like "Y'all...", "Just found...", or "Can we talk about..."`;
+            
+            const userPrompt = `Write a Facebook spotlight for: ${business.name} (${business.category_name || 'local business'}) in ${business.city || 'Kiamichi country'}. ${business.description ? `About them: ${business.description}` : ''}`;
+            
+            try {
+              const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt }
+                ],
+                max_tokens: 200,
+                temperature: 0.9
+              });
+              
+              message = (aiResponse as any)?.response || '';
+              message = message.trim().replace(/\*\*/g, '').replace(/\n{3,}/g, '\n\n');
+            } catch (aiError) {
+              console.error('[Auto-Post] AI generation failed:', aiError);
+              // Fallback message
+              message = `Y'all, have you checked out ${business.name}? Great local spot in ${business.city || 'our area'}. Even Bigfoot Jr. gives 'em two hairy thumbs up! 👍 Support local!`;
+            }
+            
+            link = `https://kiamichibizconnect.com/business/${business.slug}?utm_source=facebook&utm_medium=page&utm_campaign=sage_autopost`;
+            
+          } else if (postType === 'update') {
+            // Community update - general content
+            message = `Happy afternoon from Kiamichi country! 🌲 Bigfoot Jr. is out exploring local businesses today. Who's your favorite spot in southeast Oklahoma? Drop it below! 👇`;
+            link = 'https://kiamichibizconnect.com';
+            
+          } else if (postType === 'night') {
+            // Evening engagement
+            message = `Evening y'all! Thanks for supporting local today. Bigfoot Jr. is heading back to the woods, but we'll be back tomorrow with more great businesses. See you then! 🌙`;
+            link = 'https://kiamichibizconnect.com';
+          }
+          
+          // Post to Facebook Page
+          const pageId = env.FB_PAGE_ID;
+          const pageToken = env.FB_PAGE_ACCESS_TOKEN;
+          
+          if (!pageId || !pageToken) {
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: 'Facebook credentials not configured' 
+            }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+          }
+          
+          const postResponse = await officialPostToPage(pageId, pageToken, {
+            message,
+            link,
+            imageUrl: business?.image_url || undefined
+          });
+          
+          if (postResponse.success) {
+            // Update business post count if this was a spotlight
+            if (business && postType === 'spotlight') {
+              await env.DB.prepare(`
+                UPDATE businesses 
+                SET facebook_post_count = COALESCE(facebook_post_count, 0) + 1,
+                    updated_at = datetime('now')
+                WHERE id = ?
+              `).bind(business.id).run();
+            }
+            
+            console.log(`[Auto-Post] Success! Post ID: ${postResponse.post_id}`);
+            
+            return new Response(JSON.stringify({
+              success: true,
+              postId: postResponse.post_id,
+              type: postType,
+              business: business ? { id: business.id, name: business.name } : null,
+              message: message.substring(0, 100) + '...'
+            }), { headers: { 'Content-Type': 'application/json' } });
+          } else {
+            console.error('[Auto-Post] Failed:', postResponse.error);
+            return new Response(JSON.stringify({ 
+              success: false, 
+              error: postResponse.error 
+            }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+          }
+          
+        } catch (err: any) {
+          console.error('[Auto-Post] Error:', err);
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: err?.message || 'Unknown error' 
+          }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
       if (path === '/data-deletion') {
         if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
         try {
