@@ -6,6 +6,8 @@ import { AIChatAgent } from "agents/ai-chat-agent";
 
 // Export VoiceAgent for Durable Object binding
 export { VoiceAgent } from "./voice-agent";
+// Export SocialPostWorkflow for Workflow binding
+export { SocialPostWorkflow } from "social-post-workflow.js";
 import {
   generateId,
   streamText,
@@ -16,7 +18,7 @@ import {
   createUIMessageStreamResponse,
   type ToolSet
 } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { createCloudflare } from "@cloudflare/ai-chat";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools/index";
 import {
@@ -28,8 +30,11 @@ import { handlePreview } from "./routes/preview";
 import { handleMyBusiness, handlePublish } from "./routes/api";
 import { getBusinessContextFromSession } from "./utils/session";
 
-// Using OpenAI for now - will switch to Workers AI later
-const model = openai("gpt-4o-mini");
+// Using Cloudflare Workers AI - no API key needed
+const cloudflare = createCloudflare({
+  apiKey: process.env.CLOUDFLARE_WORKERS_AI_TOKEN || ""
+});
+const model = cloudflare("@cf/meta/llama-4-scout-17b-16e-instruct");
 
 /**
  * Chat Agent implementation that handles real-time AI chat interactions

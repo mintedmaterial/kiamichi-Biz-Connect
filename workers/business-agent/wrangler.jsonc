@@ -76,6 +76,13 @@
       "bucket_name": "kiamichi-business-images"
     }
   ],
+  "workflows": [
+    {
+      "name": "social-post-workflow",
+      "binding": "SOCIAL_POST_WORKFLOW",
+      "class_name": "SocialPostWorkflow"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {
