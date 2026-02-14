@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";  
 import { Env } from './types';
 import { DatabaseService } from './database';
 import { htmlTemplate, homepageContent } from './templates';
@@ -21,7 +22,12 @@ import {
 } from './auth/facebook-admin';
 import { requireAdminAuth } from './auth/middleware';
 
-export default {
+export default Sentry.withSentry(
+  (env) => ({
+    dsn: "https://3ea9dcc0e77f53522038e2d7ad013bbb@o4510882133049344.ingest.us.sentry.io/4510882137767936",
+    sendDefaultPii: true,
+  }),
+  {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -286,8 +292,9 @@ Disallow: /auth/*`, {
       console.error('Error handling request:', error);
       return new Response('Internal Server Error', { status: 500 });
     }
-  },
-};
+  }
+  });
+
 
 // Homepage handler
 async function handleHomepage(db: DatabaseService, env: Env): Promise<Response> {

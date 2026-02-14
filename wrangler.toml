@@ -45,10 +45,12 @@ binding = "AI"
 [[services]]
 binding = "ANALYZER"
 service = "kiamichi-biz-ai-analyzer"
-binding = "Facebook"
+[[services]]
+binding = "FACEBOOK"
 service = "kiamichi-facebook-worker"
-binding = "Kiamichi-biz-connect-site-rag"
-service = "purple-snow-f107-nlweb.srvcflo.workers.dev"
+# [[services]]
+# binding = "RAG"
+# service = "purple-snow-f107-nlweb.srvcflo.workers.dev"
 
 
 # Environment variables
