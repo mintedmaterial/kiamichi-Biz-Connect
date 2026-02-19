@@ -1,4 +1,4 @@
-import { routeAgentRequest, type Schedule } from "agents";
+import { routeAgentRequest, type Schedule, callable } from "agents";
 
 import { getSchedulePrompt } from "agents/schedule";
 
@@ -15,6 +15,7 @@ import {
   createUIMessageStream,
   convertToModelMessages,
   createUIMessageStreamResponse,
+  pruneMessages,
   type ToolSet
 } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
@@ -33,9 +34,59 @@ import { getBusinessContextFromSession } from "./utils/session";
 const WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct" as const;
 
 /**
- * Chat Agent implementation that handles real-time AI chat interactions
+ * Per-user state that persists across sessions
+ * Stored automatically in Durable Object SQLite
  */
-export class Chat extends AIChatAgent<Env> {
+export interface BusinessAgentState {
+  /** Business ID this agent is associated with */
+  businessId: number;
+  /** Business name for quick reference */
+  businessName: string;
+  /** Business slug for URL generation */
+  businessSlug: string;
+  /** Owner's user ID */
+  ownerId: string;
+  /** User preferences for AI behavior */
+  preferences: {
+    /** Writing tone for generated content */
+    tone: "professional" | "casual" | "friendly" | "informative";
+    /** Whether to auto-publish approved changes */
+    autoPublish: boolean;
+    /** Preferred content length */
+    contentLength: "short" | "medium" | "long";
+    /** Focus areas for SEO optimization */
+    seoFocus: string[];
+  };
+  /** Session tracking */
+  lastActiveAt: string;
+  /** Number of messages in current session */
+  sessionMessageCount: number;
+  /** Total messages across all sessions */
+  totalMessageCount: number;
+}
+
+/**
+ * Chat Agent implementation that handles real-time AI chat interactions
+ * Extends AIChatAgent with per-user state management
+ */
+export class Chat extends AIChatAgent<Env, BusinessAgentState> {
+  /** Initial state for new users */
+  initialState: BusinessAgentState = {
+    businessId: 0,
+    businessName: "",
+    businessSlug: "",
+    ownerId: "",
+    preferences: {
+      tone: "professional",
+      autoPublish: false,
+      contentLength: "medium",
+      seoFocus: []
+    },
+    lastActiveAt: new Date().toISOString(),
+    sessionMessageCount: 0,
+    totalMessageCount: 0
+  };
+
   metadata?: {
     businessContext?: {
       businessId: number;
@@ -48,7 +99,43 @@ export class Chat extends AIChatAgent<Env> {
   /** Create Workers AI model using the environment binding */
   private getModel() {
     const workersAI = createWorkersAI({ binding: this.env.AI });
+    // @ts-expect-error -- model not yet in workers-ai-provider type list
     return workersAI(WORKERS_AI_MODEL);
+  }
+
+  /**
+   * Update user preferences (callable via RPC)
+   */
+  @callable({ description: "Update AI behavior preferences" })
+  updatePreferences(preferences: Partial<BusinessAgentState["preferences"]>): BusinessAgentState {
+    this.setState({
+      ...this.state,
+      preferences: {
+        ...this.state.preferences,
+        ...preferences
+      }
+    });
+    return this.state;
+  }
+
+  /**
+   * Get current state (callable via RPC)
+   */
+  @callable({ description: "Get current agent state" })
+  getAgentState(): BusinessAgentState {
+    return this.state;
+  }
+
+  /**
+   * Reset preferences to defaults (callable via RPC)
+   */
+  @callable({ description: "Reset preferences to defaults" })
+  resetPreferences(): BusinessAgentState {
+    this.setState({
+      ...this.state,
+      preferences: this.initialState.preferences
+    });
+    return this.state;
   }
 
   /**
@@ -88,7 +175,7 @@ export class Chat extends AIChatAgent<Env> {
 
     console.log(`[DO] Session cookie present - allowing access`);
 
-    // Get business context from session and store in metadata
+    // Get business context from session and store in metadata + state
     // This is used by tools to know which business to operate on
     if (!this.metadata?.businessContext && this.env?.DB) {
       try {
@@ -104,6 +191,19 @@ export class Chat extends AIChatAgent<Env> {
               ownerId: businessContext.ownerId
             }
           };
+          
+          // Sync business context to persistent state
+          if (this.state.businessId !== businessContext.businessId) {
+            this.setState({
+              ...this.state,
+              businessId: businessContext.businessId,
+              businessName: businessContext.businessName,
+              businessSlug: businessContext.businessSlug,
+              ownerId: businessContext.ownerId,
+              lastActiveAt: new Date().toISOString()
+            });
+            console.log(`[DO] State synced for business: ${businessContext.businessName}`);
+          }
         } else {
           console.warn(`[DO] No business context found for session`);
         }
@@ -124,6 +224,14 @@ export class Chat extends AIChatAgent<Env> {
     onFinish: StreamTextOnFinishCallback<ToolSet>,
     _options?: { abortSignal?: AbortSignal }
   ) {
+    // Update state with activity tracking
+    this.setState({
+      ...this.state,
+      lastActiveAt: new Date().toISOString(),
+      sessionMessageCount: this.state.sessionMessageCount + 1,
+      totalMessageCount: this.state.totalMessageCount + 1
+    });
+
     // Ensure jsonSchema is initialized before getting MCP tools
     await this.mcp.ensureJsonSchema();
 
@@ -150,12 +258,20 @@ export class Chat extends AIChatAgent<Env> {
         // Get business context from metadata (passed when agent is instantiated)
         const businessContext = this.metadata?.businessContext || {};
 
-        // Build dynamic system prompt based on business information
+        // Build dynamic system prompt with user preferences
         const systemPrompt = this.buildSystemPrompt(businessContext);
+
+        // Prune messages to reduce token usage while preserving context
+        // Keeps recent tool calls and reasoning, prunes older ones
+        const prunedMessages = pruneMessages({
+          messages: await convertToModelMessages(processedMessages),
+          toolCalls: "before-last-2-messages",
+          reasoning: "before-last-message"
+        });
 
         const result = streamText({
           system: systemPrompt,
-          messages: await convertToModelMessages(processedMessages),
+          messages: prunedMessages,
           model: this.getModel(),
           tools: allTools,
           // Type boundary: streamText expects specific tool types, but base class uses ToolSet
@@ -175,9 +291,23 @@ export class Chat extends AIChatAgent<Env> {
 
   /**
    * Build system prompt for the AI assistant
+   * Incorporates user preferences from persistent state
    */
   private buildSystemPrompt(businessContext: any): string {
-    return `You are an Chi, and agent with Kiamichi Biz Connect.
+    const { preferences } = this.state;
+    const toneGuide = {
+      professional: "Use formal, business-appropriate language.",
+      casual: "Be conversational and approachable.",
+      friendly: "Be warm, welcoming, and enthusiastic.",
+      informative: "Focus on facts and helpful details."
+    };
+    const lengthGuide = {
+      short: "Keep responses concise and to the point.",
+      medium: "Provide balanced detail without overwhelming.",
+      long: "Be thorough and comprehensive in explanations."
+    };
+
+    return `You are Chi, an AI agent with Kiamichi Biz Connect.
 
 YOUR ROLE:
 - You can help manage ANY business listing in the directory
@@ -223,6 +353,12 @@ AVAILABLE CAPABILITIES:
 - Always ask for confirmation before generating media or updating content
 - Images/videos/audio may be stored in R2 and you'll receive a public URL
 - When the user asks to work on a business, ask them for the business ID or name first
+
+**USER PREFERENCES (from persistent state):**
+- Writing tone: ${preferences.tone} - ${toneGuide[preferences.tone]}
+- Content length: ${preferences.contentLength} - ${lengthGuide[preferences.contentLength]}
+- Auto-publish: ${preferences.autoPublish ? "Enabled - approved changes publish automatically" : "Disabled - require explicit publish confirmation"}
+${preferences.seoFocus.length > 0 ? `- SEO focus areas: ${preferences.seoFocus.join(", ")}` : ""}
 
 ${getSchedulePrompt({ date: new Date() })}`;
   }
