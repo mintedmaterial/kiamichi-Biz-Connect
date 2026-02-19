@@ -17,7 +17,7 @@ import {
   createUIMessageStreamResponse,
   type ToolSet
 } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { createWorkersAI } from "workers-ai-provider";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools/index";
 import {
@@ -29,11 +29,8 @@ import { handlePreview } from "./routes/preview";
 import { handleMyBusiness, handlePublish } from "./routes/api";
 import { getBusinessContextFromSession } from "./utils/session";
 
-// Using Cloudflare Workers AI - no API key needed
-const cloudflare = createCloudflare({
-  apiKey: process.env.CLOUDFLARE_WORKERS_AI_TOKEN || ""
-});
-const model = cloudflare("@cf/meta/llama-4-scout-17b-16e-instruct");
+// Workers AI model ID - binding provided at request time via Chat class
+const WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct" as const;
 
 /**
  * Chat Agent implementation that handles real-time AI chat interactions
@@ -47,6 +44,12 @@ export class Chat extends AIChatAgent<Env> {
       ownerId: string;
     };
   };
+
+  /** Create Workers AI model using the environment binding */
+  private getModel() {
+    const workersAI = createWorkersAI({ binding: this.env.AI });
+    return workersAI(WORKERS_AI_MODEL);
+  }
 
   /**
    * Override fetch to check auth on EVERY request (including WebSocket upgrades)
@@ -153,7 +156,7 @@ export class Chat extends AIChatAgent<Env> {
         const result = streamText({
           system: systemPrompt,
           messages: await convertToModelMessages(processedMessages),
-          model,
+          model: this.getModel(),
           tools: allTools,
           // Type boundary: streamText expects specific tool types, but base class uses ToolSet
           // This is safe because our tools satisfy ToolSet interface (verified by 'satisfies' in tools.ts)
@@ -375,7 +378,7 @@ ${getSchedulePrompt({ date: new Date() })}`;
       const result = await streamText({
         system: systemPrompt,
         messages: await convertToModelMessages(processedMessages),
-        model,
+        model: this.getModel(),
         tools: allTools,
         stopWhen: stepCountIs(10)
       });
