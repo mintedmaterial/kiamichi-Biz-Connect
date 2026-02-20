@@ -42,47 +42,88 @@ export async function handlePreview(request: Request, env: Env): Promise<Respons
     });
   }
 
-  // Extract session ID from cookies
-  const sessionMatch = cookieHeader.match(/portal_session=([^;]+)/);
-  if (!sessionMatch) {
+  // Extract session ID from cookies - check both admin_session and portal_session
+  const adminSessionMatch = cookieHeader.match(/admin_session=([^;]+)/);
+  const portalSessionMatch = cookieHeader.match(/portal_session=([^;]+)/);
+  
+  if (!adminSessionMatch && !portalSessionMatch) {
     return new Response('Unauthorized: Invalid session cookie', { status: 401 });
   }
 
-  const sessionId = sessionMatch[1];
-
   try {
-    // Verify session in D1
-    const session = await env.DB.prepare(`
-      SELECT id, owner_id, expires_at, last_activity
-      FROM portal_sessions
-      WHERE id = ?
-    `).bind(sessionId).first();
+    let userEmail: string | null = null;
+    let isAdmin = false;
 
-    if (!session) {
-      return new Response('Unauthorized: Session not found', { status: 401 });
-    }
-
-    // Check if session is expired
-    const now = Math.floor(Date.now() / 1000);
-    const expiresAt = session.expires_at as number | null;
-    if (expiresAt && expiresAt < now) {
-      return new Response('Unauthorized: Session expired', { status: 401 });
-    }
-
-    // Check business ownership
-    const ownership = await env.DB.prepare(`
-      SELECT id, owner_id, business_id, claim_status
-      FROM business_ownership
-      WHERE owner_id = ? AND business_id = ? AND claim_status = 'verified'
-    `).bind(session.owner_id, businessId).first();
-
-    if (!ownership) {
-      return new Response('Forbidden: You do not own this business', {
-        status: 403,
-        headers: {
-          'Content-Type': 'text/plain'
+    // Check admin_session first (from business agent)
+    if (adminSessionMatch) {
+      const adminSessionId = adminSessionMatch[1];
+      const adminSession = await env.DB.prepare(`
+        SELECT id, user_email, expires_at
+        FROM admin_sessions
+        WHERE id = ?
+      `).bind(adminSessionId).first();
+      
+      if (adminSession) {
+        const now = Math.floor(Date.now() / 1000);
+        const expiresAt = adminSession.expires_at as number | null;
+        if (!expiresAt || expiresAt >= now) {
+          userEmail = adminSession.user_email as string;
+          
+          // Check if user is a site admin
+          const siteAdmin = await env.DB.prepare(`
+            SELECT role FROM site_admins WHERE LOWER(email) = LOWER(?)
+          `).bind(userEmail).first();
+          isAdmin = !!siteAdmin;
         }
-      });
+      }
+    }
+    
+    // Fallback to portal_session if no valid admin_session
+    if (!userEmail && portalSessionMatch) {
+      const portalSessionId = portalSessionMatch[1];
+      const portalSession = await env.DB.prepare(`
+        SELECT id, owner_id, expires_at
+        FROM portal_sessions
+        WHERE id = ?
+      `).bind(portalSessionId).first();
+      
+      if (portalSession) {
+        const now = Math.floor(Date.now() / 1000);
+        const expiresAt = portalSession.expires_at as number | null;
+        if (!expiresAt || expiresAt >= now) {
+          // Get user email from owner_id
+          const owner = await env.DB.prepare(`
+            SELECT email FROM portal_users WHERE id = ?
+          `).bind(portalSession.owner_id).first();
+          if (owner) {
+            userEmail = owner.email as string;
+          }
+        }
+      }
+    }
+
+    if (!userEmail) {
+      return new Response('Unauthorized: Session not found or expired', { status: 401 });
+    }
+
+    // Site admins can preview any business
+    if (!isAdmin) {
+      // Check business ownership for non-admins
+      const ownership = await env.DB.prepare(`
+        SELECT id, owner_id, business_id, claim_status
+        FROM business_ownership bo
+        JOIN portal_users pu ON bo.owner_id = pu.id
+        WHERE LOWER(pu.email) = LOWER(?) AND bo.business_id = ? AND bo.claim_status = 'verified'
+      `).bind(userEmail, businessId).first();
+
+      if (!ownership) {
+        return new Response('Forbidden: You do not own this business', {
+          status: 403,
+          headers: {
+            'Content-Type': 'text/plain'
+          }
+        });
+      }
     }
 
     // Get listing page for business
