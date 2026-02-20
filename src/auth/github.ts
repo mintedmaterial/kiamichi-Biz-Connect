@@ -51,7 +51,7 @@ export async function handleGitHubLogin(request: Request, env: Env): Promise<Res
   // Store state in KV for CSRF validation (expires in 10 minutes)
   await env.CACHE.put(`oauth_state:${state}`, Date.now().toString(), { expirationTtl: 600 });
 
-  const redirectUri = url.origin + '/auth/github/callback';
+  const redirectUri = url.origin + '/auth/callback/github';
 
   const authUrl = new URL(GITHUB_AUTH_URL);
   authUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
@@ -116,7 +116,7 @@ export async function handleGitHubCallback(
         client_id: env.GITHUB_CLIENT_ID,
         client_secret: env.GITHUB_CLIENT_SECRET,
         code,
-        redirect_uri: url.origin + '/auth/github/callback'
+        redirect_uri: url.origin + '/auth/callback/github'
       })
     });
 

@@ -173,7 +173,7 @@ Disallow: /auth/*`, {
         return await handleGitHubLogin(request, env);
       }
 
-      if (path === '/auth/github/callback') {
+      if (path === '/auth/callback/github') {
         return await handleGitHubCallback(request, env, db);
       }
 
