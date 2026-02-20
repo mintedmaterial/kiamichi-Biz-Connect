@@ -28,6 +28,14 @@
 
 /* Tailwind config */
 @theme {
+  /* SrvcFlo Design System Colors */
+  --color-primary: #F59E0B;     /* Amber - MAIN */
+  --color-secondary: #D97706;   /* Amber darker */
+  --color-accent: #22D3EE;      /* Cyan - sparingly */
+  --color-dark: #0D0D0F;        /* Near black */
+  --color-surface: #141419;     /* Dark surface */
+  --color-border: #27272a;      /* Zinc border */
+  
   /* Type */
   --text-xs: 10px;
   --text-xs--line-height: calc(1 / 0.5);
