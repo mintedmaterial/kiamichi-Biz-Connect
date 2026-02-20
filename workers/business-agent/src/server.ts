@@ -27,7 +27,7 @@ import {
   handleMcpDisconnect
 } from "./mcp-handlers";
 import { handlePreview } from "./routes/preview";
-import { handleMyBusiness, handlePublish } from "./routes/api";
+import { handleMyBusiness, handlePublish, handleUserInfo, handleBusinesses, handleBusinessById } from "./routes/api";
 import { getBusinessContextFromSession } from "./utils/session";
 
 // Workers AI model ID - binding provided at request time via Chat class
@@ -597,6 +597,22 @@ export default {
 
     if (url.pathname === "/api/publish") {
       return handlePublish(request, env);
+    }
+
+    // User info (admin check)
+    if (url.pathname === "/api/user-info") {
+      return handleUserInfo(request, env);
+    }
+
+    // All businesses (admin only)
+    if (url.pathname === "/api/businesses") {
+      return handleBusinesses(request, env);
+    }
+
+    // Single business by ID (admin only)
+    const businessMatch = url.pathname.match(/^\/api\/business\/(\d+)$/);
+    if (businessMatch) {
+      return handleBusinessById(request, env, parseInt(businessMatch[1], 10));
     }
 
     // MCP Server Management Endpoints

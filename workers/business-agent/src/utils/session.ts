@@ -145,6 +145,57 @@ export async function getBusinessIdFromSession(
 }
 
 /**
+ * Check if user is a site admin/developer
+ */
+export async function isAdminUser(
+  email: string,
+  db: D1Database
+): Promise<{ isAdmin: boolean; role: string | null }> {
+  try {
+    const admin = await db
+      .prepare(`SELECT role FROM site_admins WHERE email = ?`)
+      .bind(email)
+      .first();
+    
+    if (admin) {
+      return { isAdmin: true, role: admin.role as string };
+    }
+    return { isAdmin: false, role: null };
+  } catch (error) {
+    console.error("[Session] Error checking admin status:", error);
+    return { isAdmin: false, role: null };
+  }
+}
+
+/**
+ * Get all businesses (for admin users)
+ */
+export async function getAllBusinesses(
+  db: D1Database
+): Promise<Array<{ id: number; name: string; slug: string; categoryName: string | null }>> {
+  try {
+    const { results } = await db
+      .prepare(`
+        SELECT b.id, b.name, b.slug, c.name as category_name
+        FROM businesses b
+        LEFT JOIN categories c ON b.category_id = c.id
+        ORDER BY b.name ASC
+      `)
+      .all();
+    
+    return (results || []).map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      categoryName: row.category_name
+    }));
+  } catch (error) {
+    console.error("[Session] Error getting all businesses:", error);
+    return [];
+  }
+}
+
+/**
  * Get full business context from session
  */
 export async function getBusinessContextFromSession(

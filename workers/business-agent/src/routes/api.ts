@@ -2,7 +2,7 @@
  * API Route Handlers
  * RESTful endpoints for business agent frontend
  */
-import { getBusinessContextFromSession } from "../utils/session";
+import { getBusinessContextFromSession, isAdminUser, getAllBusinesses, parseSessionCookie, verifySession } from "../utils/session";
 
 /**
  * GET /api/my-business
@@ -219,5 +219,173 @@ export async function handlePublish(
       },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * GET /api/user-info
+ * Returns user info including admin status
+ */
+export async function handleUserInfo(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (request.method !== "GET") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  try {
+    const cookieHeader = request.headers.get("Cookie");
+    const sessionId = parseSessionCookie(cookieHeader);
+
+    if (!sessionId) {
+      return Response.json({ error: "No session" }, { status: 401 });
+    }
+
+    const sessionInfo = await verifySession(sessionId, env.DB);
+    if (!sessionInfo) {
+      return Response.json({ error: "Invalid session" }, { status: 401 });
+    }
+
+    // Check admin status
+    const adminStatus = await isAdminUser(sessionInfo.ownerId, env.DB);
+
+    // Get user name from admin_sessions
+    const sessionData = await env.DB.prepare(
+      `SELECT user_name, user_picture FROM admin_sessions WHERE id = ?`
+    ).bind(sessionId).first();
+
+    return Response.json({
+      email: sessionInfo.ownerId,
+      name: sessionData?.user_name || null,
+      picture: sessionData?.user_picture || null,
+      isAdmin: adminStatus.isAdmin,
+      role: adminStatus.role
+    });
+  } catch (error) {
+    console.error("[API] Error getting user info:", error);
+    return Response.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+/**
+ * GET /api/businesses
+ * Returns all businesses (admin only)
+ */
+export async function handleBusinesses(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  if (request.method !== "GET") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  try {
+    const cookieHeader = request.headers.get("Cookie");
+    const sessionId = parseSessionCookie(cookieHeader);
+
+    if (!sessionId) {
+      return Response.json({ error: "No session" }, { status: 401 });
+    }
+
+    const sessionInfo = await verifySession(sessionId, env.DB);
+    if (!sessionInfo) {
+      return Response.json({ error: "Invalid session" }, { status: 401 });
+    }
+
+    // Check admin status
+    const adminStatus = await isAdminUser(sessionInfo.ownerId, env.DB);
+    if (!adminStatus.isAdmin) {
+      return Response.json({ error: "Admin access required" }, { status: 403 });
+    }
+
+    // Get all businesses
+    const businesses = await getAllBusinesses(env.DB);
+
+    return Response.json({ businesses });
+  } catch (error) {
+    console.error("[API] Error getting businesses:", error);
+    return Response.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+/**
+ * GET /api/business/:id
+ * Returns a specific business by ID (admin only)
+ */
+export async function handleBusinessById(
+  request: Request,
+  env: Env,
+  businessId: number
+): Promise<Response> {
+  if (request.method !== "GET") {
+    return new Response("Method not allowed", { status: 405 });
+  }
+
+  try {
+    const cookieHeader = request.headers.get("Cookie");
+    const sessionId = parseSessionCookie(cookieHeader);
+
+    if (!sessionId) {
+      return Response.json({ error: "No session" }, { status: 401 });
+    }
+
+    const sessionInfo = await verifySession(sessionId, env.DB);
+    if (!sessionInfo) {
+      return Response.json({ error: "Invalid session" }, { status: 401 });
+    }
+
+    // Check admin status
+    const adminStatus = await isAdminUser(sessionInfo.ownerId, env.DB);
+    if (!adminStatus.isAdmin) {
+      return Response.json({ error: "Admin access required" }, { status: 403 });
+    }
+
+    // Get business details
+    const business = await env.DB.prepare(`
+      SELECT
+        b.id,
+        b.name,
+        b.slug,
+        b.description,
+        b.phone,
+        b.email,
+        b.website,
+        b.category_id,
+        c.name as category_name,
+        lp.id as listing_page_id,
+        lp.is_published,
+        lp.seo_title,
+        lp.seo_description
+      FROM businesses b
+      LEFT JOIN categories c ON b.category_id = c.id
+      LEFT JOIN listing_pages lp ON b.id = lp.business_id
+      WHERE b.id = ?
+    `).bind(businessId).first();
+
+    if (!business) {
+      return Response.json({ error: "Business not found" }, { status: 404 });
+    }
+
+    return Response.json({
+      businessId: business.id,
+      name: business.name,
+      slug: business.slug,
+      description: business.description,
+      phone: business.phone,
+      email: business.email,
+      website: business.website,
+      categoryId: business.category_id,
+      categoryName: business.category_name,
+      listingPageId: business.listing_page_id,
+      isPublished: business.is_published === 1,
+      seoTitle: business.seo_title,
+      seoDescription: business.seo_description,
+      previewUrl: `/preview/${business.id}`,
+      liveUrl: `https://kiamichibizconnect.com/business/${business.slug}`
+    });
+  } catch (error) {
+    console.error("[API] Error getting business:", error);
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

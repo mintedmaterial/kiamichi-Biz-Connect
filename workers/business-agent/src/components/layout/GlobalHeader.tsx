@@ -6,6 +6,8 @@ import {
   BellIcon,
   UserCircleIcon,
 } from "@phosphor-icons/react";
+import { BusinessSelector } from "./BusinessSelector";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 const pageTitles: Record<string, string> = {
   "/": "Chat",
@@ -18,6 +20,7 @@ const pageTitles: Record<string, string> = {
 
 export function GlobalHeader() {
   const location = useLocation();
+  const { selectedBusinessId, setSelectedBusinessId, isAdmin } = useBusiness();
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     const saved = localStorage.getItem("theme");
     return (saved as "dark" | "light") || "dark";
@@ -38,10 +41,18 @@ export function GlobalHeader() {
 
   return (
     <header className="h-14 flex items-center justify-between px-6 border-b border-[#27272a] bg-[#141419]/80 backdrop-blur-sm">
-      {/* Page title */}
-      <h1 className="text-lg font-semibold text-neutral-100">
-        {pageTitle}
-      </h1>
+      {/* Left: Page title + Business selector */}
+      <div className="flex items-center gap-4">
+        <h1 className="text-lg font-semibold text-neutral-100">
+          {pageTitle}
+        </h1>
+        {isAdmin && (
+          <BusinessSelector
+            selectedBusinessId={selectedBusinessId}
+            onSelect={setSelectedBusinessId}
+          />
+        )}
+      </div>
 
       {/* Actions */}
       <div className="flex items-center gap-2">
