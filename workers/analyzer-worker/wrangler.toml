@@ -38,7 +38,7 @@ MAX_AUTO_UPDATES_PER_DAY = "3"
 # Minimum confidence for auto-apply (0.95 = 95%)
 AUTO_APPLY_CONFIDENCE_THRESHOLD = "0.95"
 # Enable Code Mode execution (experimental)
-USE_CODE_MODE = "false"
+USE_CODE_MODE = "true"
 
 # Worker Loader for Code Mode sandboxed execution
 # TODO: Uncomment when worker_loaders beta access is granted

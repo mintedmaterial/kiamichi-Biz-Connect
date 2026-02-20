@@ -11,6 +11,7 @@ export interface Env {
   MAX_AUTO_UPDATES_PER_DAY: string;
   AUTO_APPLY_CONFIDENCE_THRESHOLD: string;
   USE_CODE_MODE?: string;  // Set to "true" to enable Code Mode execution
+  ADMIN_KEY?: string;  // For /test-cron endpoint auth
 }
 
 export interface Business {

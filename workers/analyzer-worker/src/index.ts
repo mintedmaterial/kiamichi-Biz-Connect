@@ -51,6 +51,18 @@ export default {
         }, { headers: corsHeaders });
       }
 
+      // Test Code Mode cron (admin only)
+      if (path === '/test-cron') {
+        const adminKey = request.headers.get('X-Admin-Key');
+        if (adminKey !== env.ADMIN_KEY) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+        }
+        
+        console.log('[Test] Manual Code Mode cron trigger');
+        const result = await runCodeModeCron(env);
+        return Response.json(result, { headers: corsHeaders });
+      }
+
       // Get analysis result
       if (path.startsWith('/analysis/') && request.method === 'GET') {
         const businessId = parseInt(path.split('/')[2]);
