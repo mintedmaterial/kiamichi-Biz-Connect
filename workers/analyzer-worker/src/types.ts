@@ -3,12 +3,14 @@ export interface Env {
   IMAGES: R2Bucket;
   CACHE: KVNamespace;
   AI: Ai;
+  LOADER: WorkerLoader;  // Code Mode: Dynamic worker loader for sandbox execution
   SITE_NAME: string;
   SITE_URL: string;
   MAIN_WORKER_URL: string;
   ANALYZER_VERSION: string;
   MAX_AUTO_UPDATES_PER_DAY: string;
   AUTO_APPLY_CONFIDENCE_THRESHOLD: string;
+  USE_CODE_MODE?: string;  // Set to "true" to enable Code Mode execution
 }
 
 export interface Business {

@@ -37,6 +37,12 @@ ANALYZER_VERSION = "1.0.0"
 MAX_AUTO_UPDATES_PER_DAY = "3"
 # Minimum confidence for auto-apply (0.95 = 95%)
 AUTO_APPLY_CONFIDENCE_THRESHOLD = "0.95"
+# Enable Code Mode execution (experimental)
+USE_CODE_MODE = "false"
+
+# Worker Loader for Code Mode sandboxed execution
+[[worker_loaders]]
+binding = "LOADER"
 
 [observability]
 [observability.logs]

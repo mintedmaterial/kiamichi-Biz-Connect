@@ -12,6 +12,7 @@ import { Env, Business, AnalysisResult, EnrichmentSuggestion, AnalyzeRequest, An
 import { analyzeCompleteness, generateEnrichmentPlan } from './analyzer';
 import { browseWeb, extractDataFromWeb } from './webTools';
 import { applyAutoUpdates, storeSuggestions, getBusinessById } from './database';
+import { runCodeModeCron } from './codemode-cron';
 
 export default {
   /**
@@ -77,6 +78,17 @@ export default {
    */
   async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
     console.log('Starting autonomous business analysis cron...');
+
+    // Use Code Mode if enabled (experimental)
+    if (env.USE_CODE_MODE === 'true') {
+      console.log('[Cron] Using Code Mode execution');
+      const result = await runCodeModeCron(env);
+      console.log(`[Cron] Code Mode completed: ${result.processed} processed, ${result.updated} updated`);
+      return;
+    }
+
+    // Traditional sequential execution
+    console.log('[Cron] Using traditional execution');
 
     try {
       // Get businesses that need autonomous updates
