@@ -6,10 +6,11 @@
  */
 
 import { createCodeTool } from '@cloudflare/codemode/ai';
-import { DynamicWorkerExecutor } from '@cloudflare/codemode';
+// import { DynamicWorkerExecutor } from '@cloudflare/codemode';  // Requires beta access
 import { generateText } from 'ai';
 import { Env } from './types';
 import { createAnalyzerTools } from './codemode-tools';
+import { SimpleExecutor } from './simple-executor';
 
 // Simple Workers AI model wrapper for ai-sdk
 function createWorkersAIModel(env: Env) {
@@ -55,11 +56,10 @@ export async function runCodeModeCron(env: Env): Promise<{
   console.log('[CodeMode] Starting analysis cron...');
 
   try {
-    // Create the executor (runs code in isolated V8 sandbox)
-    const executor = new DynamicWorkerExecutor({
-      loader: env.LOADER,
-      timeout: 60000 // 60 second timeout
-    });
+    // Create the executor
+    // TODO: Switch to DynamicWorkerExecutor when worker_loaders beta access is granted
+    // const executor = new DynamicWorkerExecutor({ loader: env.LOADER, timeout: 60000 });
+    const executor = new SimpleExecutor({ timeout: 60000 });
 
     // Create tools from analyzer functions
     const tools = createAnalyzerTools(env);

@@ -41,8 +41,9 @@ AUTO_APPLY_CONFIDENCE_THRESHOLD = "0.95"
 USE_CODE_MODE = "false"
 
 # Worker Loader for Code Mode sandboxed execution
-[[worker_loaders]]
-binding = "LOADER"
+# TODO: Uncomment when worker_loaders beta access is granted
+# [[worker_loaders]]
+# binding = "LOADER"
 
 [observability]
 [observability.logs]

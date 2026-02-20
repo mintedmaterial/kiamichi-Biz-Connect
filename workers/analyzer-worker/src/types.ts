@@ -3,7 +3,7 @@ export interface Env {
   IMAGES: R2Bucket;
   CACHE: KVNamespace;
   AI: Ai;
-  LOADER: WorkerLoader;  // Code Mode: Dynamic worker loader for sandbox execution
+  // LOADER: WorkerLoader;  // Code Mode: Uncomment when beta access granted
   SITE_NAME: string;
   SITE_URL: string;
   MAIN_WORKER_URL: string;
