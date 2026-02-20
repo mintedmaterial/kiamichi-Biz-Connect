@@ -1,45 +1,21 @@
 /**
- * Minimal Code Mode Implementation
+ * Template-Based Code Mode Implementation
  * 
- * No external dependencies - uses Workers AI directly and SimpleExecutor.
- * The LLM writes code against our tool API, we execute it.
+ * LLM selects from predefined operation templates instead of writing arbitrary code.
+ * Works without Worker Loader beta access.
+ * 
+ * TODO: Upgrade to full Code Mode when worker_loaders access is granted.
  */
 
 import { Env, Business, EnrichmentSuggestion } from './types';
 import { analyzeCompleteness, generateEnrichmentPlan } from './analyzer';
 import { browseWeb, extractDataFromWeb } from './webTools';
 import { applyAutoUpdates, getBusinessById } from './database';
-import { SimpleExecutor } from './simple-executor';
 
 /**
- * TypeScript API definition for the LLM
+ * Tool functions bound to environment
  */
-const CODEMODE_API_TYPES = `
-interface CodeModeAPI {
-  // Get businesses needing analysis
-  getBusinessesForUpdate(opts: { limit?: number }): Promise<Business[]>;
-  
-  // Analyze completeness (0-100)
-  analyzeCompleteness(opts: { businessId: number }): Promise<{ score: number; needsEnrichment: boolean }>;
-  
-  // Get enrichment plan
-  generateEnrichmentPlan(opts: { businessId: number }): Promise<{ fields: string[] }>;
-  
-  // Search web for data
-  enrichFromWeb(opts: { businessId: number; fields: string[] }): Promise<{ suggestions: Suggestion[] }>;
-  
-  // Apply high-confidence updates
-  applyUpdates(opts: { businessId: number; suggestions: Suggestion[]; threshold?: number }): Promise<{ applied: number }>;
-}
-
-interface Business { id: number; name: string; city: string; state: string; }
-interface Suggestion { field: string; suggestedValue: any; confidence: number; }
-`;
-
-/**
- * Create the codemode tool functions bound to env
- */
-function createCodeModeTools(env: Env) {
+function createTools(env: Env) {
   return {
     async getBusinessesForUpdate({ limit = 10 }: { limit?: number }) {
       const { results } = await env.DB.prepare(`
@@ -58,7 +34,7 @@ function createCodeModeTools(env: Env) {
       const business = await getBusinessById(businessId, env);
       if (!business) return { score: 0, needsEnrichment: true, error: 'Not found' };
       const score = analyzeCompleteness(business);
-      return { score, needsEnrichment: score < 80 };
+      return { score, needsEnrichment: score < 80, name: business.name };
     },
 
     async generateEnrichmentPlan({ businessId }: { businessId: number }) {
@@ -73,7 +49,7 @@ function createCodeModeTools(env: Env) {
       if (!business) return { suggestions: [], error: 'Not found' };
       
       const suggestions: EnrichmentSuggestion[] = [];
-      for (const field of fields) {
+      for (const field of fields.slice(0, 3)) { // Limit to 3 fields per business
         try {
           const webData = await browseWeb(business, field, env);
           const extracted = extractDataFromWeb(webData, field);
@@ -89,10 +65,10 @@ function createCodeModeTools(env: Env) {
             });
           }
         } catch (e) {
-          console.warn(`Failed to enrich ${field}:`, e);
+          console.warn(`[CodeMode] Failed to enrich ${field}:`, e);
         }
       }
-      return { suggestions };
+      return { suggestions, count: suggestions.length };
     },
 
     async applyUpdates({ businessId, suggestions, threshold = 0.95 }: { 
@@ -103,82 +79,149 @@ function createCodeModeTools(env: Env) {
       const highConf = suggestions.filter(s => s.confidence >= threshold);
       if (highConf.length === 0) return { applied: 0 };
       const applied = await applyAutoUpdates(businessId, highConf, env);
-      return { applied };
+      return { applied, fields: highConf.map(s => s.field) };
     }
   };
 }
 
+type Tools = ReturnType<typeof createTools>;
+
 /**
- * Run Code Mode analysis cron
+ * Predefined operation templates
+ */
+const OPERATION_TEMPLATES = {
+  /**
+   * Full analysis: score → plan → enrich → apply
+   */
+  'full-analysis': async (tools: Tools, params: { limit?: number }) => {
+    const businesses = await tools.getBusinessesForUpdate({ limit: params.limit || 5 });
+    console.log(`[CodeMode] Processing ${businesses.length} businesses`);
+    
+    let processed = 0;
+    let updated = 0;
+    
+    for (const biz of businesses) {
+      try {
+        const score = await tools.analyzeCompleteness({ businessId: biz.id });
+        console.log(`[CodeMode] ${biz.name}: score=${score.score}`);
+        processed++;
+        
+        if (score.needsEnrichment) {
+          const plan = await tools.generateEnrichmentPlan({ businessId: biz.id });
+          if (plan.fields.length > 0) {
+            const data = await tools.enrichFromWeb({ businessId: biz.id, fields: plan.fields });
+            if (data.suggestions.length > 0) {
+              const result = await tools.applyUpdates({ 
+                businessId: biz.id, 
+                suggestions: data.suggestions 
+              });
+              if (result.applied > 0) {
+                updated++;
+                console.log(`[CodeMode] ${biz.name}: applied ${result.applied} updates`);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`[CodeMode] Error processing ${biz.name}:`, e);
+      }
+    }
+    
+    return { processed, updated };
+  },
+
+  /**
+   * Score only: just calculate completeness scores
+   */
+  'score-only': async (tools: Tools, params: { limit?: number }) => {
+    const businesses = await tools.getBusinessesForUpdate({ limit: params.limit || 10 });
+    const scores: { id: number; name: string; score: number }[] = [];
+    
+    for (const biz of businesses) {
+      const result = await tools.analyzeCompleteness({ businessId: biz.id });
+      scores.push({ id: biz.id, name: biz.name, score: result.score });
+    }
+    
+    return { processed: scores.length, updated: 0, scores };
+  },
+
+  /**
+   * Enrich only: skip scoring, go straight to web enrichment
+   */
+  'enrich-only': async (tools: Tools, params: { limit?: number; fields?: string[] }) => {
+    const businesses = await tools.getBusinessesForUpdate({ limit: params.limit || 3 });
+    const defaultFields = params.fields || ['phone', 'website', 'email'];
+    let updated = 0;
+    
+    for (const biz of businesses) {
+      const data = await tools.enrichFromWeb({ businessId: biz.id, fields: defaultFields });
+      if (data.suggestions.length > 0) {
+        const result = await tools.applyUpdates({ businessId: biz.id, suggestions: data.suggestions });
+        if (result.applied > 0) updated++;
+      }
+    }
+    
+    return { processed: businesses.length, updated };
+  }
+};
+
+type TemplateName = keyof typeof OPERATION_TEMPLATES;
+
+/**
+ * Run template-based Code Mode cron
  */
 export async function runCodeModeCron(env: Env): Promise<{
   success: boolean;
   processed: number;
   updated: number;
+  template?: string;
   error?: string;
 }> {
-  console.log('[CodeMode] Starting minimal code mode cron...');
+  console.log('[CodeMode] Starting template-based cron...');
 
   try {
-    const tools = createCodeModeTools(env);
-    const executor = new SimpleExecutor({ timeout: 60000 });
+    const tools = createTools(env);
 
-    // Generate analysis code using Workers AI
-    const prompt = `You are a business data analyzer. Write JavaScript code to analyze businesses.
+    // Ask LLM to select the best operation template
+    const prompt = `You are a business data analyzer scheduler. Based on the current time and workload, select ONE operation:
 
-Available API (already bound to 'codemode' object):
-${CODEMODE_API_TYPES}
+1. "full-analysis" - Complete analysis: score businesses, plan enrichment, search web, apply updates. Use for normal cron runs.
+2. "score-only" - Just calculate completeness scores. Use for quick health checks.
+3. "enrich-only" - Skip scoring, directly enrich from web. Use when you know data is stale.
 
-Write an async arrow function that:
-1. Gets up to 5 businesses needing analysis
-2. For each, check completeness score
-3. If score < 80, get enrichment plan and search web
-4. Apply updates with confidence >= 0.95
-5. Return { processed: number, updated: number }
+Current time: ${new Date().toISOString()}
+This is a scheduled cron run (3x daily).
 
-ONLY output the arrow function code, nothing else. Example format:
-async () => {
-  const businesses = await codemode.getBusinessesForUpdate({ limit: 5 });
-  // ... your code
-  return { processed: businesses.length, updated: 0 };
-}`;
+Respond with ONLY the template name, nothing else. Example: full-analysis`;
 
     const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
       messages: [
-        { role: 'system', content: 'You write clean JavaScript code. Output ONLY the code, no explanations.' },
+        { role: 'system', content: 'You select operations. Output ONLY the operation name.' },
         { role: 'user', content: prompt }
       ],
-      max_tokens: 1024
+      max_tokens: 20
     });
 
-    const generatedCode = (aiResponse as any).response || '';
-    console.log('[CodeMode] Generated code:', generatedCode.slice(0, 200) + '...');
-
-    // Extract just the function body if wrapped
-    let code = generatedCode.trim();
-    if (code.startsWith('```')) {
-      code = code.replace(/```[a-z]*\n?/g, '').trim();
-    }
-
-    // Execute the generated code
-    const result = await executor.execute(code, tools);
-
-    if (result.error) {
-      console.error('[CodeMode] Execution error:', result.error);
-      return { success: false, processed: 0, updated: 0, error: result.error };
-    }
-
-    const summary = result.result as { processed?: number; updated?: number } || {};
-    console.log(`[CodeMode] Complete: ${summary.processed || 0} processed, ${summary.updated || 0} updated`);
+    let templateName = ((aiResponse as any).response || 'full-analysis').trim().toLowerCase();
     
-    if (result.logs?.length) {
-      console.log('[CodeMode] Logs:', result.logs.join('\n'));
+    // Validate template name
+    if (!OPERATION_TEMPLATES[templateName as TemplateName]) {
+      console.log(`[CodeMode] Invalid template "${templateName}", defaulting to full-analysis`);
+      templateName = 'full-analysis';
     }
+
+    console.log(`[CodeMode] Selected template: ${templateName}`);
+
+    // Execute the selected template
+    const result = await OPERATION_TEMPLATES[templateName as TemplateName](tools, { limit: 5 });
+
+    console.log(`[CodeMode] Complete: ${result.processed} processed, ${result.updated} updated`);
 
     return {
       success: true,
-      processed: summary.processed || 0,
-      updated: summary.updated || 0
+      processed: result.processed,
+      updated: result.updated,
+      template: templateName
     };
 
   } catch (error) {
