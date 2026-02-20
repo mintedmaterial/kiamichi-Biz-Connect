@@ -153,7 +153,7 @@ export async function isAdminUser(
 ): Promise<{ isAdmin: boolean; role: string | null }> {
   try {
     const admin = await db
-      .prepare(`SELECT role FROM site_admins WHERE email = ?`)
+      .prepare(`SELECT role FROM site_admins WHERE LOWER(email) = LOWER(?)`)
       .bind(email)
       .first();
     
