@@ -23,11 +23,6 @@
     "binding": "AI",
     "remote": true
   },
-  "assets": {
-    "directory": "public",
-    "html_handling": "auto-trailing-slash",
-    "not_found_handling": "single-page-application"
-  },
   "d1_databases": [
     {
       "binding": "DB",

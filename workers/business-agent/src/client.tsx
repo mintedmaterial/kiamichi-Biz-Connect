@@ -3,19 +3,33 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Providers } from "@/providers";
 import { AppLayout } from "@/components/layout";
-import Chat from "./app";
-import { AgentsPage, DeploymentsPage, EditsPage, AccountPage } from "@/pages";
+import { ChatPage, AgentsPage, DeploymentsPage, EditsPage, AccountPage } from "@/pages";
+import { PreviewPane } from "@/components/preview-pane/PreviewPane";
+import { useState, useCallback } from "react";
 
-// Listing page - wraps the existing PreviewPane
+// Listing page - standalone preview with publish capability
 function ListingPage() {
-  // TODO: Extract PreviewPane from Chat and use here
+  const [previewKey, setPreviewKey] = useState(0);
+  const [isPublishing] = useState(false);
+
+  const handleRefresh = useCallback(() => {
+    setPreviewKey((prev) => prev + 1);
+  }, []);
+
+  const handlePublish = useCallback(() => {
+    // TODO: Implement publish dialog
+    console.log("Publish clicked");
+  }, []);
+
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold text-neutral-100 mb-4">My Listing</h2>
-      <p className="text-neutral-400">
-        View and edit your business listing. This will show your live listing preview.
-      </p>
-      {/* Preview iframe or component goes here */}
+    <div className="h-full flex flex-col">
+      <PreviewPane
+        businessId={null}
+        previewKey={previewKey}
+        onPublish={handlePublish}
+        onRefresh={handleRefresh}
+        isPublishing={isPublishing}
+      />
     </div>
   );
 }
@@ -27,7 +41,7 @@ root.render(
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<Chat />} />
+          <Route path="/" element={<ChatPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/listing" element={<ListingPage />} />
           <Route path="/deployments" element={<DeploymentsPage />} />
