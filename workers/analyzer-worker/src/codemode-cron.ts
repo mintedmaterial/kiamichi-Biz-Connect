@@ -1,45 +1,109 @@
 /**
- * Code Mode Cron Handler
+ * Minimal Code Mode Implementation
  * 
- * Uses Code Mode to let an LLM write analysis code that runs in a sandbox.
- * This replaces sequential tool calls with a single code execution.
+ * No external dependencies - uses Workers AI directly and SimpleExecutor.
+ * The LLM writes code against our tool API, we execute it.
  */
 
-import { createCodeTool } from '@cloudflare/codemode/ai';
-// import { DynamicWorkerExecutor } from '@cloudflare/codemode';  // Requires beta access
-import { generateText } from 'ai';
-import { Env } from './types';
-import { createAnalyzerTools } from './codemode-tools';
+import { Env, Business, EnrichmentSuggestion } from './types';
+import { analyzeCompleteness, generateEnrichmentPlan } from './analyzer';
+import { browseWeb, extractDataFromWeb } from './webTools';
+import { applyAutoUpdates, getBusinessById } from './database';
 import { SimpleExecutor } from './simple-executor';
 
-// Simple Workers AI model wrapper for ai-sdk
-function createWorkersAIModel(env: Env) {
+/**
+ * TypeScript API definition for the LLM
+ */
+const CODEMODE_API_TYPES = `
+interface CodeModeAPI {
+  // Get businesses needing analysis
+  getBusinessesForUpdate(opts: { limit?: number }): Promise<Business[]>;
+  
+  // Analyze completeness (0-100)
+  analyzeCompleteness(opts: { businessId: number }): Promise<{ score: number; needsEnrichment: boolean }>;
+  
+  // Get enrichment plan
+  generateEnrichmentPlan(opts: { businessId: number }): Promise<{ fields: string[] }>;
+  
+  // Search web for data
+  enrichFromWeb(opts: { businessId: number; fields: string[] }): Promise<{ suggestions: Suggestion[] }>;
+  
+  // Apply high-confidence updates
+  applyUpdates(opts: { businessId: number; suggestions: Suggestion[]; threshold?: number }): Promise<{ applied: number }>;
+}
+
+interface Business { id: number; name: string; city: string; state: string; }
+interface Suggestion { field: string; suggestedValue: any; confidence: number; }
+`;
+
+/**
+ * Create the codemode tool functions bound to env
+ */
+function createCodeModeTools(env: Env) {
   return {
-    specificationVersion: 'v1' as const,
-    provider: 'workers-ai' as const,
-    modelId: '@cf/meta/llama-3.1-8b-instruct',
-    
-    async doGenerate(options: any) {
-      const messages = options.prompt.map((p: any) => ({
-        role: p.role === 'system' ? 'system' : p.role === 'user' ? 'user' : 'assistant',
-        content: typeof p.content === 'string' ? p.content : p.content.map((c: any) => c.text).join('')
-      }));
+    async getBusinessesForUpdate({ limit = 10 }: { limit?: number }) {
+      const { results } = await env.DB.prepare(`
+        SELECT b.id, b.name, b.city, b.state FROM businesses b
+        LEFT JOIN business_analysis ba ON b.id = ba.business_id
+        WHERE b.is_active = 1
+        AND (ba.id IS NULL OR ba.completeness_score < 80
+          OR (julianday('now') - julianday(ba.analysis_date, 'unixepoch')) > 7)
+        ORDER BY CASE WHEN ba.id IS NULL THEN 0 ELSE 1 END, ba.completeness_score ASC
+        LIMIT ?
+      `).bind(limit).all();
+      return results as Business[];
+    },
 
-      const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-        messages,
-        max_tokens: 4096
-      });
+    async analyzeCompleteness({ businessId }: { businessId: number }) {
+      const business = await getBusinessById(businessId, env);
+      if (!business) return { score: 0, needsEnrichment: true, error: 'Not found' };
+      const score = analyzeCompleteness(business);
+      return { score, needsEnrichment: score < 80 };
+    },
 
-      return {
-        text: response.response || '',
-        finishReason: 'stop' as const,
-        usage: {
-          promptTokens: 0,
-          completionTokens: 0
-        },
-        rawCall: { rawPrompt: messages, rawSettings: {} },
-        warnings: []
-      };
+    async generateEnrichmentPlan({ businessId }: { businessId: number }) {
+      const business = await getBusinessById(businessId, env);
+      if (!business) return { fields: [], error: 'Not found' };
+      const plan = await generateEnrichmentPlan(business, env);
+      return { fields: plan.map(p => p.field) };
+    },
+
+    async enrichFromWeb({ businessId, fields }: { businessId: number; fields: string[] }) {
+      const business = await getBusinessById(businessId, env);
+      if (!business) return { suggestions: [], error: 'Not found' };
+      
+      const suggestions: EnrichmentSuggestion[] = [];
+      for (const field of fields) {
+        try {
+          const webData = await browseWeb(business, field, env);
+          const extracted = extractDataFromWeb(webData, field);
+          if (extracted.value && extracted.confidence > 0.5) {
+            suggestions.push({
+              field,
+              currentValue: (business as any)[field] || null,
+              suggestedValue: extracted.value,
+              confidence: extracted.confidence,
+              source: extracted.source,
+              sourceType: extracted.sourceType,
+              reasoning: `Found via web search`
+            });
+          }
+        } catch (e) {
+          console.warn(`Failed to enrich ${field}:`, e);
+        }
+      }
+      return { suggestions };
+    },
+
+    async applyUpdates({ businessId, suggestions, threshold = 0.95 }: { 
+      businessId: number; 
+      suggestions: EnrichmentSuggestion[]; 
+      threshold?: number 
+    }) {
+      const highConf = suggestions.filter(s => s.confidence >= threshold);
+      if (highConf.length === 0) return { applied: 0 };
+      const applied = await applyAutoUpdates(businessId, highConf, env);
+      return { applied };
     }
   };
 }
@@ -53,70 +117,68 @@ export async function runCodeModeCron(env: Env): Promise<{
   updated: number;
   error?: string;
 }> {
-  console.log('[CodeMode] Starting analysis cron...');
+  console.log('[CodeMode] Starting minimal code mode cron...');
 
   try {
-    // Create the executor
-    // TODO: Switch to DynamicWorkerExecutor when worker_loaders beta access is granted
-    // const executor = new DynamicWorkerExecutor({ loader: env.LOADER, timeout: 60000 });
+    const tools = createCodeModeTools(env);
     const executor = new SimpleExecutor({ timeout: 60000 });
 
-    // Create tools from analyzer functions
-    const tools = createAnalyzerTools(env);
+    // Generate analysis code using Workers AI
+    const prompt = `You are a business data analyzer. Write JavaScript code to analyze businesses.
 
-    // Create the codemode tool
-    const codemode = createCodeTool({
-      tools,
-      executor,
-      description: `You are the KBC Business Analyzer. Write JavaScript code to analyze and enrich business listings.
-
-Available functions on the codemode object:
-- getBusinessesForUpdate({ limit, minCompleteness, daysStale }): Get businesses needing analysis
-- analyzeCompleteness({ businessId }): Get completeness score (0-100)
-- generateEnrichmentPlan({ businessId }): Get list of fields to enrich
-- enrichFromWeb({ businessId, fields }): Search web for missing data
-- applyUpdates({ businessId, suggestions, confidenceThreshold }): Apply high-confidence updates
-- storeAnalysis({ businessId, completenessScore, suggestions }): Save analysis for review
+Available API (already bound to 'codemode' object):
+${CODEMODE_API_TYPES}
 
 Write an async arrow function that:
-1. Gets up to 10 businesses that need analysis
-2. For each business, analyze completeness
-3. If score < 80, generate enrichment plan and search web
+1. Gets up to 5 businesses needing analysis
+2. For each, check completeness score
+3. If score < 80, get enrichment plan and search web
 4. Apply updates with confidence >= 0.95
-5. Store all analysis results
-6. Return a summary object with processed count and updated count`
+5. Return { processed: number, updated: number }
+
+ONLY output the arrow function code, nothing else. Example format:
+async () => {
+  const businesses = await codemode.getBusinessesForUpdate({ limit: 5 });
+  // ... your code
+  return { processed: businesses.length, updated: 0 };
+}`;
+
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: 'system', content: 'You write clean JavaScript code. Output ONLY the code, no explanations.' },
+        { role: 'user', content: prompt }
+      ],
+      max_tokens: 1024
     });
 
-    // Use Workers AI to generate and execute the analysis code
-    const model = createWorkersAIModel(env);
+    const generatedCode = (aiResponse as any).response || '';
+    console.log('[CodeMode] Generated code:', generatedCode.slice(0, 200) + '...');
 
-    const result = await generateText({
-      model: model as any,
-      system: 'You write JavaScript code to automate business data analysis. Write clean, efficient code.',
-      prompt: 'Analyze businesses that need enrichment. Get businesses, check completeness, enrich from web if needed, apply high-confidence updates, and return results summary.',
-      tools: { codemode },
-      maxSteps: 3
-    });
+    // Extract just the function body if wrapped
+    let code = generatedCode.trim();
+    if (code.startsWith('```')) {
+      code = code.replace(/```[a-z]*\n?/g, '').trim();
+    }
 
-    // Extract results from the code execution
-    const toolResults = result.steps?.flatMap(s => s.toolResults || []) || [];
-    const codemodeResult = toolResults.find(r => r.toolName === 'codemode');
+    // Execute the generated code
+    const result = await executor.execute(code, tools);
 
-    if (codemodeResult?.result) {
-      const summary = codemodeResult.result as { processed?: number; updated?: number };
-      console.log(`[CodeMode] Completed: ${summary.processed || 0} processed, ${summary.updated || 0} updated`);
-      
-      return {
-        success: true,
-        processed: summary.processed || 0,
-        updated: summary.updated || 0
-      };
+    if (result.error) {
+      console.error('[CodeMode] Execution error:', result.error);
+      return { success: false, processed: 0, updated: 0, error: result.error };
+    }
+
+    const summary = result.result as { processed?: number; updated?: number } || {};
+    console.log(`[CodeMode] Complete: ${summary.processed || 0} processed, ${summary.updated || 0} updated`);
+    
+    if (result.logs?.length) {
+      console.log('[CodeMode] Logs:', result.logs.join('\n'));
     }
 
     return {
       success: true,
-      processed: 0,
-      updated: 0
+      processed: summary.processed || 0,
+      updated: summary.updated || 0
     };
 
   } catch (error) {
