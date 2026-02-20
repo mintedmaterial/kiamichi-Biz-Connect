@@ -19,6 +19,10 @@ import {
   handleFacebookAdminLogin,
   handleFacebookAdminCallback
 } from './auth/facebook-admin';
+import {
+  handleGitHubLogin,
+  handleGitHubCallback
+} from './auth/github';
 import { requireAdminAuth } from './auth/middleware';
 
 export default {
@@ -162,6 +166,15 @@ Disallow: /auth/*`, {
 
       if (path === '/auth/facebook/admin/callback') {
         return await handleFacebookAdminCallback(request, env, db);
+      }
+
+      // GitHub OAuth routes (admin authentication)
+      if (path === '/auth/github/login') {
+        return await handleGitHubLogin(request, env);
+      }
+
+      if (path === '/auth/github/callback') {
+        return await handleGitHubCallback(request, env, db);
       }
 
       // Logout (works for both Google and Facebook)

@@ -19,6 +19,10 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   ADMIN_GOOGLE_EMAILS: string; // Comma-separated list of authorized emails
 
+  // GitHub OAuth for admin authentication
+  GITHUB_CLIENT_ID: string;
+  GITHUB_CLIENT_SECRET: string;
+
   // Facebook OAuth for business integration
   FACEBOOK_APP_ID: string;
   FACEBOOK_APP_SECRET: string;
