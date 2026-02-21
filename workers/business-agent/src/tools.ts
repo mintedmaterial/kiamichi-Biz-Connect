@@ -7,6 +7,7 @@ import { z } from "zod/v3";
 import type { Chat } from "./server";
 import { Agent, getCurrentAgent } from "agents";
 import { scheduleSchema } from "agents/schedule";
+import { executeTemplate, getTemplateInfo, type TemplateName } from "./codemode";
 
 /**
  * Update a page component (hero, services, gallery, etc.)
@@ -369,6 +370,40 @@ const generateImage = tool({
 });
 
 /**
+ * Run a Code Mode template for batch operations
+ * Auto-executes predefined operation sequences
+ */
+const runCodeMode = tool({
+  description: `Execute a Code Mode template for batch operations on the business listing.
+Available templates:
+${getTemplateInfo()}
+
+Use this for efficient batch operations instead of multiple individual tool calls.`,
+  inputSchema: z.object({
+    businessId: z.number().describe("The business ID to operate on"),
+    template: z.enum(["refresh-content", "optimize-seo", "schedule-social", "audit-listing"])
+      .describe("The operation template to execute"),
+    params: z.record(z.any()).optional().describe("Optional parameters for the template")
+  }),
+  execute: async ({ businessId, template, params }) => {
+    const { agent } = getCurrentAgent<Chat>();
+    const env = agent?.env;
+
+    if (!env?.DB || !env?.AI) {
+      throw new Error("Database or AI not available");
+    }
+
+    const result = await executeTemplate(env, businessId, template as TemplateName, params || {});
+    
+    if (!result.success) {
+      return `Code Mode failed: ${result.error}`;
+    }
+
+    return JSON.stringify(result.result, null, 2);
+  }
+});
+
+/**
  * Export all available tools
  * Note: Social media tools (Facebook posting) are now in tools/facebooktools.ts
  */
@@ -384,7 +419,8 @@ export const tools = {
   queryDatabase,
   getTableSchema,
   delegateToRagAgent,
-  generateImage
+  generateImage,
+  runCodeMode
 } satisfies ToolSet;
 
 /**
