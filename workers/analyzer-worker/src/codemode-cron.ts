@@ -80,6 +80,39 @@ function createTools(env: Env) {
       if (highConf.length === 0) return { applied: 0 };
       const applied = await applyAutoUpdates(businessId, highConf, env);
       return { applied, fields: highConf.map(s => s.field) };
+    },
+
+    async storeAnalysis({ businessId, score, suggestions }: {
+      businessId: number;
+      score: number;
+      suggestions: EnrichmentSuggestion[];
+    }) {
+      const missingFields = suggestions.map(s => s.field);
+      const foundData = suggestions.reduce((acc, s) => {
+        acc[s.field] = s.suggestedValue;
+        return acc;
+      }, {} as Record<string, any>);
+      const confidenceScores = suggestions.reduce((acc, s) => {
+        acc[s.field] = s.confidence;
+        return acc;
+      }, {} as Record<string, number>);
+
+      await env.DB.prepare(`
+        INSERT INTO business_analysis (
+          business_id, completeness_score, missing_fields, suggestions,
+          found_data, confidence_scores, analyzer_version, analysis_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
+      `).bind(
+        businessId,
+        score,
+        JSON.stringify(missingFields),
+        JSON.stringify(suggestions.map(s => s.reasoning || '')),
+        JSON.stringify(foundData),
+        JSON.stringify(confidenceScores),
+        env.ANALYZER_VERSION
+      ).run();
+
+      return { stored: true, businessId };
     }
   };
 }
@@ -106,14 +139,17 @@ const OPERATION_TEMPLATES = {
         console.log(`[CodeMode] ${biz.name}: score=${score.score}`);
         processed++;
         
+        let suggestions: EnrichmentSuggestion[] = [];
+        
         if (score.needsEnrichment) {
           const plan = await tools.generateEnrichmentPlan({ businessId: biz.id });
           if (plan.fields.length > 0) {
             const data = await tools.enrichFromWeb({ businessId: biz.id, fields: plan.fields });
-            if (data.suggestions.length > 0) {
+            suggestions = data.suggestions;
+            if (suggestions.length > 0) {
               const result = await tools.applyUpdates({ 
                 businessId: biz.id, 
-                suggestions: data.suggestions 
+                suggestions 
               });
               if (result.applied > 0) {
                 updated++;
@@ -122,6 +158,15 @@ const OPERATION_TEMPLATES = {
             }
           }
         }
+        
+        // Store analysis result to track what's been processed
+        await tools.storeAnalysis({
+          businessId: biz.id,
+          score: score.score,
+          suggestions
+        });
+        console.log(`[CodeMode] ${biz.name}: analysis stored`);
+        
       } catch (e) {
         console.error(`[CodeMode] Error processing ${biz.name}:`, e);
       }
@@ -140,6 +185,13 @@ const OPERATION_TEMPLATES = {
     for (const biz of businesses) {
       const result = await tools.analyzeCompleteness({ businessId: biz.id });
       scores.push({ id: biz.id, name: biz.name, score: result.score });
+      
+      // Store analysis result
+      await tools.storeAnalysis({
+        businessId: biz.id,
+        score: result.score,
+        suggestions: []
+      });
     }
     
     return { processed: scores.length, updated: 0, scores };
@@ -154,11 +206,20 @@ const OPERATION_TEMPLATES = {
     let updated = 0;
     
     for (const biz of businesses) {
+      const score = await tools.analyzeCompleteness({ businessId: biz.id });
       const data = await tools.enrichFromWeb({ businessId: biz.id, fields: defaultFields });
+      
       if (data.suggestions.length > 0) {
         const result = await tools.applyUpdates({ businessId: biz.id, suggestions: data.suggestions });
         if (result.applied > 0) updated++;
       }
+      
+      // Store analysis result
+      await tools.storeAnalysis({
+        businessId: biz.id,
+        score: score.score,
+        suggestions: data.suggestions
+      });
     }
     
     return { processed: businesses.length, updated };

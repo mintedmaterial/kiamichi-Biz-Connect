@@ -1,4 +1,3 @@
-import Handlebars from "handlebars";
 import type {
   ComponentTemplate,
   BusinessData,
@@ -9,11 +8,12 @@ import type {
 /**
  * ComponentRenderer
  *
- * Renders component templates using Handlebars, merging template HTML/CSS
- * with component content and business data.
+ * Renders component templates using simple string interpolation,
+ * merging template HTML/CSS with component content and business data.
  *
  * Key Features:
- * - Handlebars template interpolation for dynamic content
+ * - Simple {{variable}} interpolation (Workers-compatible, no eval)
+ * - {{#if var}}...{{/if}} conditional blocks
  * - Business data injection ({{business_name}}, {{business_phone}}, etc.)
  * - Content merging (component content overrides default_content)
  * - Scoped CSS injection with data-component attributes
@@ -38,9 +38,10 @@ export class ComponentRenderer {
       component.content
     );
 
-    // Prepare context for Handlebars with business data
-    const context = {
+    // Prepare context with business data
+    const context: Record<string, unknown> = {
       ...mergedContent,
+      id: component.id,
       business_name: businessData.name,
       business_phone: businessData.phone || "",
       business_email: businessData.email || "",
@@ -51,16 +52,14 @@ export class ComponentRenderer {
       business_image_url: businessData.image_url || "",
     };
 
-    // Compile and render HTML template
-    const htmlCompiler = Handlebars.compile(template.html_template);
-    let renderedHtml = htmlCompiler(context);
+    // Render HTML template using simple interpolation
+    let renderedHtml = this.interpolate(template.html_template, context);
 
     // Add data-component attribute to root element for CSS scoping
     renderedHtml = this.addComponentAttribute(renderedHtml, component.id);
 
-    // Compile and render CSS template
-    const cssCompiler = Handlebars.compile(template.css_template);
-    const renderedCss = cssCompiler(context);
+    // Render CSS template using simple interpolation
+    const renderedCss = this.interpolate(template.css_template, context);
 
     // Scope CSS to component using data-component attribute
     const scopedCss = this.scopeCss(renderedCss, component.id);
@@ -71,6 +70,64 @@ export class ComponentRenderer {
       componentId: component.id,
       componentType: component.component_type,
     };
+  }
+
+  /**
+   * Simple template interpolation (Workers-compatible, no eval/Function)
+   * Supports:
+   * - {{variable}} - simple replacement
+   * - {{#if variable}}content{{/if}} - conditional blocks
+   *
+   * @param template - Template string with {{placeholders}}
+   * @param context - Data context for replacement
+   * @returns Interpolated string
+   */
+  private interpolate(
+    template: string,
+    context: Record<string, unknown>
+  ): string {
+    let result = template;
+
+    // Handle {{#if var}}...{{/if}} blocks first
+    result = result.replace(
+      /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
+      (_, varName, content) => {
+        const value = this.getValue(varName, context);
+        // Show content if value is truthy (exists and not empty)
+        if (value && value !== "" && value !== false && value !== 0) {
+          return content;
+        }
+        return "";
+      }
+    );
+
+    // Handle simple {{variable}} replacements
+    result = result.replace(/\{\{(\w+)\}\}/g, (_, varName) => {
+      const value = this.getValue(varName, context);
+      return value !== undefined && value !== null ? String(value) : "";
+    });
+
+    return result;
+  }
+
+  /**
+   * Get value from context, supporting nested dot notation
+   */
+  private getValue(
+    path: string,
+    context: Record<string, unknown>
+  ): unknown {
+    const parts = path.split(".");
+    let value: unknown = context;
+
+    for (const part of parts) {
+      if (value === null || value === undefined) {
+        return undefined;
+      }
+      value = (value as Record<string, unknown>)[part];
+    }
+
+    return value;
   }
 
   /**
