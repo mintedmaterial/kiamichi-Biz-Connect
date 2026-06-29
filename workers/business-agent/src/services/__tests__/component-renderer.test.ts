@@ -121,40 +121,6 @@ describe("ComponentRenderer", () => {
       expect(result.html).toContain("Learn More");
     });
 
-    it("should parse JSON string content from D1 before rendering", async () => {
-      const template: ComponentTemplate = {
-        component_type: "hero",
-        variant: "modern",
-        html_template: "<section><h1>{{heading}}</h1><p>{{subheading}}</p></section>",
-        css_template: ".hero { color: {{text_color}}; }",
-        default_content: {
-          heading: "Default Heading",
-          subheading: "Default Subheading",
-          text_color: "#111111",
-        },
-      };
-
-      const component = {
-        id: "comp-json",
-        listing_page_id: "page-1",
-        component_type: "hero",
-        display_order: 1,
-        config: "{}",
-        content: JSON.stringify({
-          heading: "Stored Heading",
-          text_color: "#f48120",
-        }),
-        style_variant: "modern",
-        is_visible: 1,
-      } as unknown as PageComponent;
-
-      const result = await renderer.render(template, component, mockBusinessData);
-
-      expect(result.html).toContain("Stored Heading");
-      expect(result.html).toContain("Default Subheading");
-      expect(result.css).toContain("color: #f48120");
-    });
-
     it("should inject scoped CSS with data-component attribute", async () => {
       const template: ComponentTemplate = {
         component_type: "hero",
@@ -346,10 +312,9 @@ describe("ComponentRenderer", () => {
       };
 
       const merged = renderer.mergeContent(defaultContent, componentContent);
-      const config = merged.config as Record<string, unknown>;
 
-      expect(config.theme).toBe("dark");
-      expect(config.fontSize).toBe(16);
+      expect(merged.config.theme).toBe("dark");
+      expect(merged.config.fontSize).toBe(16);
     });
   });
 });

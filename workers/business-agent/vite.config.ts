@@ -7,7 +7,6 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [cloudflare(), react(), tailwindcss()],
   resolve: {
-    extensions: [".ts", ".tsx", ".mjs", ".js", ".jsx", ".json"],
     alias: {
       "@": path.resolve(__dirname, "./src")
     }

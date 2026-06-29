@@ -35,7 +35,7 @@ export class ComponentRenderer {
     // Merge default content with component-specific content
     const mergedContent = this.mergeContent(
       template.default_content,
-      this.parseRecord(component.content)
+      component.content
     );
 
     // Prepare context for Handlebars with business data
@@ -108,25 +108,6 @@ export class ComponentRenderer {
     }
 
     return merged;
-  }
-
-  private parseRecord(value: Record<string, unknown> | string | null | undefined): Record<string, unknown> {
-    if (!value) {
-      return {};
-    }
-
-    if (typeof value !== "string") {
-      return value;
-    }
-
-    try {
-      const parsed = JSON.parse(value);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? parsed
-        : {};
-    } catch {
-      return {};
-    }
   }
 
   /**

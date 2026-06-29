@@ -4,15 +4,14 @@ import type {
   PageComponent,
   RenderedComponent,
 } from "./types";
-import type { TemplateLoader } from "./template-loader";
-import type { ComponentRenderer } from "./component-renderer";
+import { TemplateLoader } from "./template-loader";
+import { ComponentRenderer } from "./component-renderer";
 
 /**
  * PageAssembler Options
  */
 interface PageAssemblerOptions {
   previewMode?: boolean;
-  assetBaseUrl?: string;
 }
 
 /**
@@ -86,13 +85,7 @@ export class PageAssembler {
     };
 
     // Assemble final HTML
-    const html = this.buildHTML(
-      business,
-      renderedComponents,
-      meta,
-      options.previewMode,
-      options.assetBaseUrl
-    );
+    const html = this.buildHTML(business, renderedComponents, meta, options.previewMode);
 
     return {
       html,
@@ -155,23 +148,16 @@ export class PageAssembler {
    * @returns Complete HTML document
    */
   private buildHTML(
-    _business: BusinessData,
+    business: BusinessData,
     components: RenderedComponent[],
     meta: AssembledPage["meta"],
-    previewMode?: boolean,
-    assetBaseUrl?: string
+    previewMode?: boolean
   ): string {
     // Combine all component CSS
-    const combinedCSS = this.resolveAssetUrls(
-      components.map((c) => c.css).join("\n\n"),
-      assetBaseUrl
-    );
+    const combinedCSS = components.map((c) => c.css).join("\n\n");
 
     // Combine all component HTML
-    const combinedHTML = this.resolveAssetUrls(
-      components.map((c) => c.html).join("\n"),
-      assetBaseUrl
-    );
+    const combinedHTML = components.map((c) => c.html).join("\n");
 
     // Preview banner HTML
     const previewBanner = previewMode
@@ -188,7 +174,6 @@ export class PageAssembler {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  ${assetBaseUrl ? `<base href="${this.escapeHtml(this.ensureTrailingSlash(assetBaseUrl))}">` : ""}
   <title>${this.escapeHtml(meta.title)}</title>
   <meta name="description" content="${this.escapeHtml(meta.description)}">
 
@@ -245,47 +230,5 @@ export class PageAssembler {
       "'": "&#039;",
     };
     return text.replace(/[&<>"']/g, (char) => map[char]);
-  }
-
-  private resolveAssetUrls(content: string, assetBaseUrl?: string): string {
-    if (!assetBaseUrl || !content) {
-      return content;
-    }
-
-    const baseUrl = this.ensureTrailingSlash(assetBaseUrl);
-
-    return content
-      .replace(
-        /\b(src|href|poster|action)=(["'])([^"']+)\2/g,
-        (match, attribute: string, quote: string, value: string) => {
-          const resolved = this.resolveUrl(value, baseUrl);
-          return resolved ? `${attribute}=${quote}${resolved}${quote}` : match;
-        }
-      )
-      .replace(
-        /url\(\s*(["']?)([^"')]+)\1\s*\)/g,
-        (match, quote: string, value: string) => {
-          const resolved = this.resolveUrl(value.trim(), baseUrl);
-          return resolved ? `url(${quote}${resolved}${quote})` : match;
-        }
-      );
-  }
-
-  private resolveUrl(value: string, baseUrl: string): string | null {
-    if (
-      !value ||
-      value.startsWith("#") ||
-      value.startsWith("{{") ||
-      /^[a-z][a-z0-9+.-]*:/i.test(value) ||
-      value.startsWith("//")
-    ) {
-      return null;
-    }
-
-    return new URL(value, baseUrl).toString();
-  }
-
-  private ensureTrailingSlash(url: string): string {
-    return url.endsWith("/") ? url : `${url}/`;
   }
 }

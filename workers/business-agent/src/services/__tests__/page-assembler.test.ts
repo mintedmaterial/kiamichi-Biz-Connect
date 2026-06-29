@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PageAssembler } from "../page-assembler";
 import { TemplateLoader } from "../template-loader";
 import { ComponentRenderer } from "../component-renderer";
@@ -18,20 +18,21 @@ class MockD1Database {
   }
 
   prepare(query: string) {
+    const self = this;
     return {
-      bind: (..._args: unknown[]) => ({
+      bind: (...args: unknown[]) => ({
         all: async () => {
           if (query.includes("SELECT * FROM page_components")) {
-            return { results: this.components };
+            return { results: self.components };
           }
           if (query.includes("SELECT") && query.includes("FROM businesses")) {
-            return { results: this.businesses };
+            return { results: self.businesses };
           }
           return { results: [] };
         },
         first: async () => {
           if (query.includes("SELECT") && query.includes("FROM businesses")) {
-            return this.businesses[0] || null;
+            return self.businesses[0] || null;
           }
           return null;
         },
@@ -311,54 +312,6 @@ describe("PageAssembler", () => {
       expect(result.previewMode).toBe(true);
       expect(result.html).toContain("preview");
       expect(result.html).toContain("This is a preview");
-    });
-
-    it("should resolve preview asset URLs against the public site origin", async () => {
-      const heroComponent: PageComponent = {
-        id: "comp-1",
-        listing_page_id: "page-1",
-        component_type: "hero",
-        display_order: 1,
-        config: {},
-        content: {},
-        style_variant: "modern",
-        is_visible: true,
-      };
-
-      mockDb.setMockComponents([heroComponent]);
-      mockTemplateLoader.setMockTemplate("hero", "modern", {
-        component_type: "hero",
-        variant: "modern",
-        html_template:
-          '<section><img src="/images/hero.png"><img src="gallery/photo.png"><a href="/business/mountain-coffee-roasters">View</a></section>',
-        css_template:
-          ".hero { background-image: url(/images/bg.png); } .logo { background: url('assets/logo.png'); }",
-        default_content: {},
-      });
-
-      const result = await assembler.assemblePage("page-1", {
-        previewMode: true,
-        assetBaseUrl: "https://kiamichibizconnect.com",
-      });
-
-      expect(result.html).toContain(
-        '<base href="https://kiamichibizconnect.com/">'
-      );
-      expect(result.html).toContain(
-        'src="https://kiamichibizconnect.com/images/hero.png"'
-      );
-      expect(result.html).toContain(
-        'src="https://kiamichibizconnect.com/gallery/photo.png"'
-      );
-      expect(result.html).toContain(
-        'href="https://kiamichibizconnect.com/business/mountain-coffee-roasters"'
-      );
-      expect(result.html).toContain(
-        "url(https://kiamichibizconnect.com/images/bg.png)"
-      );
-      expect(result.html).toContain(
-        "url('https://kiamichibizconnect.com/assets/logo.png')"
-      );
     });
 
     it("should not include preview banner in production mode", async () => {

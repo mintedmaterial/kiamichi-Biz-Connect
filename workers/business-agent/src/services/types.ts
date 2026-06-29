@@ -37,10 +37,10 @@ export interface PageComponent {
   listing_page_id: string;
   component_type: string;
   display_order: number;
-  config: Record<string, unknown> | string;
-  content: Record<string, unknown> | string;
+  config: Record<string, unknown>;
+  content: Record<string, unknown>;
   style_variant: string;
-  is_visible: boolean | number;
+  is_visible: boolean;
   created_at?: string;
   updated_at?: string;
 }
