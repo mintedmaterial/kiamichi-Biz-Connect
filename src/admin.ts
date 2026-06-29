@@ -1477,7 +1477,7 @@ Write the blog post now in markdown format:`;
     }
 
     // Call Workers AI
-    const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
       messages: [
         { role: 'system', content: 'You are an expert SEO content writer specializing in local business marketing. Write engaging, informative blog posts optimized for Google search.' },
         { role: 'user', content: prompt }

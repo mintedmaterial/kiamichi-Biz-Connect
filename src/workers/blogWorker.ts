@@ -241,7 +241,7 @@ Write the blog post now:`;
   }
 
   // Call Llama AI to generate content
-  const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+  const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
     messages: [
       { role: 'system', content: 'You are an expert SEO content writer specializing in local business marketing.' },
       { role: 'user', content: prompt }
