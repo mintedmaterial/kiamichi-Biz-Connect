@@ -6,6 +6,9 @@ import { defineConfig } from "vitest/config";
  * for pure unit testing without runtime dependencies
  */
 export default defineConfig({
+  resolve: {
+    extensions: [".ts", ".tsx", ".mjs", ".js", ".jsx", ".json"],
+  },
   test: {
     environment: "node",
     globals: true,

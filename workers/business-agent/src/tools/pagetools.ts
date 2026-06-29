@@ -658,7 +658,8 @@ export const pageToolExecutions = {
       const pageAssembler = new PageAssembler(env.DB, templateLoader, componentRenderer);
 
       const assembledPage = await pageAssembler.assemblePage(String(listingPage.id), {
-        previewMode: false
+        previewMode: false,
+        assetBaseUrl: "https://kiamichibizconnect.com"
       });
 
       // Calculate SHA-256 hash of HTML

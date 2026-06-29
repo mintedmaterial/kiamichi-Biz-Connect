@@ -6,6 +6,8 @@ import { PageAssembler } from '../services/page-assembler';
 import { TemplateLoader } from '../services/template-loader';
 import { ComponentRenderer } from '../services/component-renderer';
 
+const PUBLIC_SITE_ORIGIN = 'https://kiamichibizconnect.com';
+
 /**
  * Handle preview requests for business listing pages
  *
@@ -106,7 +108,8 @@ export async function handlePreview(request: Request, env: Env): Promise<Respons
     const pageAssembler = new PageAssembler(env.DB, templateLoader, componentRenderer);
 
     const assembledPage = await pageAssembler.assemblePage(String(listingPage.id), {
-      previewMode: true
+      previewMode: true,
+      assetBaseUrl: PUBLIC_SITE_ORIGIN
     });
 
     // Inject preview banner at the top of the body
