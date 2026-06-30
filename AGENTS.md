@@ -149,6 +149,7 @@ Existing docs to reference:
 - `WORKER_ARCHITECTURE.md` — System design
 - `TESTING_GUIDE.md` — How to test
 - `CI_CD_SETUP.md` — GitHub Actions
+- `docs/11-bigfoot-kbc-agent.md` — Bigfoot KBC cron prompts, workdir, and `#KBC` delivery rules
 
 ## When Stuck
 
