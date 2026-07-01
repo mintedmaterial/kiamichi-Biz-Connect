@@ -84,7 +84,7 @@ templates/
 src/portal/
 src/facebook-content-generator.ts
 src/facebook-graph-api.ts
-src/facebook-scheduler.ts
+!src/facebook-scheduler.ts
 
 # Assets (can be added selectively if needed)
 screenshots/
