@@ -427,7 +427,17 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
       </div>
 
           <script>
-              function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+              function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]; }); }
+              function safeExternalUrl(url){
+                const value = String(url ?? '').trim();
+                if (!value) return '#';
+                try {
+                  const parsed = new URL(value, window.location.origin);
+                  return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : '#';
+                } catch (e) {
+                  return '#';
+                }
+              }
 
               window.openEdit = async function(id){
                 try {
@@ -624,7 +634,7 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
                 } catch (error) {
                   document.getElementById('analyzerStatus').innerHTML = \`
                     <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                      ❌ Error: \${error.message}
+                      ❌ Error: \${escapeHtml(error.message)}
                     </div>
                   \`;
                 }
@@ -647,13 +657,13 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
                       }">
                         <div class="flex justify-between items-start mb-2">
                           <div>
-                            <span class="font-semibold text-gray-800">\${s.field_name}</span>
+                            <span class="font-semibold text-gray-800">\${escapeHtml(s.field_name)}</span>
                             <span class="ml-2 px-2 py-1 text-xs rounded \${
                               s.status === 'pending' ? 'bg-yellow-200 text-yellow-800' :
                               s.status === 'approved' ? 'bg-green-200 text-green-800' :
                               s.status === 'rejected' ? 'bg-red-200 text-red-800' :
                               'bg-gray-200 text-gray-800'
-                            }">\${s.status}</span>
+                            }">\${escapeHtml(s.status)}</span>
                           </div>
                           <span class="text-sm font-bold \${
                             s.confidence >= 0.9 ? 'text-green-600' :
@@ -662,9 +672,9 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
                           }">\${Math.round(s.confidence * 100)}% confidence</span>
                         </div>
                         <div class="text-sm mb-2">
-                          <div class="text-gray-600">Current: <span class="italic">\${s.current_value || '(empty)'}</span></div>
-                          <div class="text-gray-900 font-medium">Suggested: <span class="text-blue-700">\${s.suggested_value}</span></div>
-                          <div class="text-gray-500 text-xs mt-1">Source: \${s.source_type}\${s.source_url ? ' - ' + s.source_url : ''}</div>
+                          <div class="text-gray-600">Current: <span class="italic">\${escapeHtml(s.current_value || '(empty)')}</span></div>
+                          <div class="text-gray-900 font-medium">Suggested: <span class="text-blue-700">\${escapeHtml(s.suggested_value)}</span></div>
+                          <div class="text-gray-500 text-xs mt-1">Source: \${escapeHtml(s.source_type)}\${s.source_url ? ' - ' + escapeHtml(s.source_url) : ''}</div>
                         </div>
                         \${s.status === 'pending' ? \`
                           <div class="flex gap-2 mt-3">
@@ -672,7 +682,7 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
                             <button onclick="reviewSuggestion(\${s.id}, 'reject', \${businessId})" class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm">✗ Reject</button>
                           </div>
                         \` : s.reviewed_by ? \`
-                          <div class="text-xs text-gray-500 mt-2">Reviewed by: \${s.reviewed_by}</div>
+                          <div class="text-xs text-gray-500 mt-2">Reviewed by: \${escapeHtml(s.reviewed_by)}</div>
                         \` : ''}
                       </div>
                     \`).join('');
@@ -684,7 +694,7 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
                   }
 
                 } catch (error) {
-                  document.getElementById('analyzerResults').innerHTML = \`<p class="text-red-600">Error loading suggestions: \${error.message}</p>\`;
+                  document.getElementById('analyzerResults').innerHTML = \`<p class="text-red-600">Error loading suggestions: \${escapeHtml(error.message)}</p>\`;
                 }
               }
 
@@ -841,7 +851,7 @@ async function deleteBusiness(id: string, db: DatabaseService): Promise<Response
 }
 
 // Simple HTML escape helper
-function escapeHtml(input: any): string { return String(input || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escapeHtml(input: any): string { return String(input ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] || ch)); }
 
 async function approveSubmission(id: string, db: DatabaseService): Promise<Response> {
   try {
@@ -1725,8 +1735,8 @@ async function manageBlogsPage(db: DatabaseService, page: number = 1): Promise<R
 
       container.innerHTML = images.map(img =>
         '<div class="border rounded-lg p-3 ' + (img.is_approved ? 'border-green-500 bg-green-50' : 'border-gray-300') + '">' +
-          '<img src="/images/' + img.image_key + '" alt="Candidate ' + img.display_order + '" class="w-full h-48 object-cover rounded mb-2">' +
-          '<p class="text-xs text-gray-600 mb-2">' + (img.image_prompt || 'AI Generated') + '</p>' +
+          '<img src="/images/' + escapeHtml(img.image_key) + '" alt="Candidate ' + img.display_order + '" class="w-full h-48 object-cover rounded mb-2">' +
+          '<p class="text-xs text-gray-600 mb-2">' + escapeHtml(img.image_prompt || 'AI Generated') + '</p>' +
           (!img.is_approved ?
             '<div class="flex gap-2">' +
               '<button type="button" onclick="approveImage(' + blogId + ', ' + img.id + ')" class="bg-green-600 text-white px-3 py-1 rounded text-sm flex-1">✓ Approve</button>' +
@@ -2237,26 +2247,26 @@ function adminDashboardHTML(): string {
             list.innerHTML = data.pending.map(sub => \`
                 <div class="border rounded p-4 mb-4 bg-white">
                     <div class="flex justify-between items-start mb-2">
-                        <h3 class="font-bold text-lg">\${sub.name}</h3>
+                        <h3 class="font-bold text-lg">\${escapeHtml(sub.name)}</h3>
                         <div class="flex gap-1">
                             \${sub.email ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ Email</span>' : ''}
                             \${sub.phone ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ Phone</span>' : ''}
                             \${sub.website ? '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">✓ Website</span>' : ''}
                         </div>
                     </div>
-                    <p class="text-sm text-gray-600 mb-2">\${sub.city}, \${sub.state}</p>
+                    <p class="text-sm text-gray-600 mb-2">\${escapeHtml(sub.city)}, \${escapeHtml(sub.state)}</p>
 
                     <div class="grid grid-cols-2 gap-2 text-sm mb-3">
-                        \${sub.email ? \`<div><span class="font-semibold">Email:</span> <a href="mailto:\${sub.email}" class="text-blue-600">\${sub.email}</a></div>\` : ''}
-                        \${sub.phone ? \`<div><span class="font-semibold">Phone:</span> <a href="tel:\${sub.phone}" class="text-blue-600">\${sub.phone}</a></div>\` : ''}
-                        \${sub.website ? \`<div><span class="font-semibold">Website:</span> <a href="\${sub.website}" target="_blank" class="text-blue-600">\${sub.website}</a></div>\` : ''}
-                        \${sub.address ? \`<div><span class="font-semibold">Address:</span> \${sub.address}</div>\` : ''}
+                        \${sub.email ? \`<div><span class="font-semibold">Email:</span> <a href="mailto:\${escapeHtml(sub.email)}" class="text-blue-600">\${escapeHtml(sub.email)}</a></div>\` : ''}
+                        \${sub.phone ? \`<div><span class="font-semibold">Phone:</span> <a href="tel:\${escapeHtml(sub.phone)}" class="text-blue-600">\${escapeHtml(sub.phone)}</a></div>\` : ''}
+                        \${sub.website ? \`<div><span class="font-semibold">Website:</span> <a href="\${safeExternalUrl(sub.website)}" target="_blank" rel="noopener noreferrer" class="text-blue-600">\${escapeHtml(sub.website)}</a></div>\` : ''}
+                        \${sub.address ? \`<div><span class="font-semibold">Address:</span> \${escapeHtml(sub.address)}</div>\` : ''}
                     </div>
 
                     \${sub.description ? \`
                         <div class="bg-gray-50 p-3 rounded mb-3">
                             <p class="text-sm font-semibold mb-1">Description:</p>
-                            <p class="text-sm text-gray-700">\${sub.description}</p>
+                            <p class="text-sm text-gray-700">\${escapeHtml(sub.description)}</p>
                         </div>
                     \` : '<p class="text-sm text-gray-500 mb-3 italic">No description provided</p>'}
 
@@ -2320,29 +2330,29 @@ function adminDashboardHTML(): string {
                 <div class="border rounded p-4 mb-4 bg-gray-50">
                     <div class="flex justify-between items-start mb-2">
                         <div>
-                            <h3 class="font-bold text-lg">\${lead.name}</h3>
-                            <p class="text-sm text-gray-600">For: <a href="/business/\${lead.business_slug}" class="text-blue-600">\${lead.business_name}</a></p>
+                            <h3 class="font-bold text-lg">\${escapeHtml(lead.name)}</h3>
+                            <p class="text-sm text-gray-600">For: <a href="/business/\${escapeHtml(lead.business_slug)}" class="text-blue-600">\${escapeHtml(lead.business_name)}</a></p>
                         </div>
                         <span class="px-2 py-1 rounded text-xs font-semibold \${
                             lead.urgency === 'asap' ? 'bg-red-100 text-red-800' :
                             lead.urgency === 'this-week' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-green-100 text-green-800'
-                        }">\${lead.urgency.toUpperCase()}</span>
+                        }">\${escapeHtml(lead.urgency.toUpperCase())}</span>
                     </div>
 
                     <div class="grid grid-cols-2 gap-2 text-sm mb-3">
                         <div>
-                            <span class="font-semibold">Email:</span> <a href="mailto:\${lead.email}" class="text-blue-600">\${lead.email}</a>
+                            <span class="font-semibold">Email:</span> <a href="mailto:\${escapeHtml(lead.email)}" class="text-blue-600">\${escapeHtml(lead.email)}</a>
                         </div>
-                        \${lead.phone ? \`<div><span class="font-semibold">Phone:</span> <a href="tel:\${lead.phone}" class="text-blue-600">\${lead.phone}</a></div>\` : ''}
-                        \${lead.service_requested ? \`<div><span class="font-semibold">Service:</span> \${lead.service_requested}</div>\` : ''}
-                        <div><span class="font-semibold">Contact via:</span> \${lead.preferred_contact_method}</div>
+                        \${lead.phone ? \`<div><span class="font-semibold">Phone:</span> <a href="tel:\${escapeHtml(lead.phone)}" class="text-blue-600">\${escapeHtml(lead.phone)}</a></div>\` : ''}
+                        \${lead.service_requested ? \`<div><span class="font-semibold">Service:</span> \${escapeHtml(lead.service_requested)}</div>\` : ''}
+                        <div><span class="font-semibold">Contact via:</span> \${escapeHtml(lead.preferred_contact_method)}</div>
                     </div>
 
                     \${lead.message ? \`
                         <div class="bg-white p-3 rounded mb-3">
                             <p class="text-sm font-semibold mb-1">Message:</p>
-                            <p class="text-sm text-gray-700">\${lead.message}</p>
+                            <p class="text-sm text-gray-700">\${escapeHtml(lead.message)}</p>
                         </div>
                     \` : ''}
 
@@ -2426,11 +2436,11 @@ function adminDashboardHTML(): string {
                             \${data.businesses.map(biz => \`
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="text-sm font-medium text-gray-900">\${biz.name}</div>
-                                        <div class="text-sm text-gray-500"><a href="/business/\${biz.slug}" target="_blank" class="text-blue-600">View Page →</a></div>
+                                        <div class="text-sm font-medium text-gray-900">\${escapeHtml(biz.name)}</div>
+                                        <div class="text-sm text-gray-500"><a href="/business/\${escapeHtml(biz.slug)}" target="_blank" class="text-blue-600">View Page →</a></div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        \${biz.city}, \${biz.state}
+                                        \${escapeHtml(biz.city)}, \${escapeHtml(biz.state)}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         \${biz.google_rating ? '⭐ ' + biz.google_rating.toFixed(1) : 'No rating'}
