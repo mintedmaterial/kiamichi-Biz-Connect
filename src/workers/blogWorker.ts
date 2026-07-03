@@ -29,6 +29,27 @@ export interface BlogGenerationResult {
   error?: string;
 }
 
+interface GeneratedBlogData {
+  business_id?: number;
+  title: string;
+  slug: string;
+  excerpt: string;
+  content: string;
+  featured_image?: string;
+}
+
+export interface AutomatedBlogRunResult {
+  success: boolean;
+  strategy: BlogGenerationRequest['type'];
+  title?: string;
+  slug?: string;
+  blog_id?: number;
+  featured_image?: string;
+  image_auto_approved: boolean;
+  selection_reason: string;
+  error?: string;
+}
+
 /**
  * Main blog worker function
  */
@@ -113,24 +134,294 @@ export async function runBlogWorker(
 }
 
 /**
+ * Generate, auto-approve a featured image when needed, and publish a daily blog post.
+ */
+export async function runAutomatedDailyBlog(
+  env: Env,
+  db: DatabaseService
+): Promise<AutomatedBlogRunResult> {
+  const plan = await selectAutomatedBlogRequest(db);
+
+  console.log('Automated daily blog plan selected:', plan.type, plan.selectionReason);
+
+  const result = await runBlogWorker(env, db, plan.request);
+  if (!result.success || !result.blog_id) {
+    return {
+      success: false,
+      strategy: plan.type,
+      title: result.title,
+      slug: result.slug,
+      image_auto_approved: false,
+      selection_reason: plan.selectionReason,
+      error: result.error || 'Blog generation failed'
+    };
+  }
+
+  const approvedImage = await autoApproveFirstCandidateImage(env, db, result.blog_id);
+
+  await db.updateBlogPost(result.blog_id, {
+    is_published: true,
+    publish_date: Math.floor(Date.now() / 1000),
+    ...(approvedImage.featuredImage ? { featured_image: approvedImage.featuredImage } : {})
+  });
+
+  const publishedPost = await db.getBlogPostById(result.blog_id);
+
+  return {
+    success: true,
+    strategy: plan.type,
+    title: result.title,
+    slug: result.slug,
+    blog_id: result.blog_id,
+    featured_image: (publishedPost as any)?.featured_image || approvedImage.featuredImage || result.featured_image,
+    image_auto_approved: approvedImage.approved,
+    selection_reason: plan.selectionReason
+  };
+}
+
+async function selectAutomatedBlogRequest(db: DatabaseService): Promise<{
+  type: BlogGenerationRequest['type'];
+  request: BlogGenerationRequest;
+  selectionReason: string;
+}> {
+  const strategyOrder: BlogGenerationRequest['type'][] = ['business_tips', 'service_area', 'category', 'business_spotlight'];
+  const daySeed = Math.floor(Date.now() / 86400000);
+  const startIndex = daySeed % strategyOrder.length;
+  const orderedStrategies = strategyOrder.map((_, index) => strategyOrder[(startIndex + index) % strategyOrder.length]);
+
+  for (const strategy of orderedStrategies) {
+    const plan = await buildStrategyRequest(strategy, db, daySeed);
+    if (plan) {
+      return {
+        type: strategy,
+        request: plan.request,
+        selectionReason: plan.selectionReason
+      };
+    }
+  }
+
+  throw new Error('No eligible blog automation strategy found');
+}
+
+async function buildStrategyRequest(
+  strategy: BlogGenerationRequest['type'],
+  db: DatabaseService,
+  daySeed: number
+): Promise<{
+  request: BlogGenerationRequest;
+  selectionReason: string;
+} | null> {
+  switch (strategy) {
+    case 'business_tips': {
+      const tipsTopics = [
+        'How Southeast Oklahoma Businesses Can Improve Local SEO This Month',
+        'Simple Customer Follow-Up Systems for Rural Service Businesses',
+        'Practical Facebook Posting Ideas for Small-Town Oklahoma Businesses',
+        'How Local Businesses Can Turn Reviews Into More Calls and Walk-Ins',
+        'Seasonal Promotion Ideas for Southeast Oklahoma Small Businesses',
+        'What to Put on Your Business Website to Win More Local Leads',
+        'How to Build Referral Partnerships Between Nearby Local Businesses',
+        'Low-Cost Marketing Ideas That Still Work for Small-Town Businesses'
+      ];
+      const topic = tipsTopics[daySeed % tipsTopics.length];
+      return {
+        request: {
+          type: 'business_tips',
+          topic,
+          customPrompt: 'Keep this highly practical, locally grounded, and specific to small businesses in Southeast Oklahoma. Avoid generic AI filler and include concrete examples businesses can actually use this week.'
+        },
+        selectionReason: `Rotating evergreen business-tip topic selected for day seed ${daySeed}: ${topic}`
+      };
+    }
+    case 'service_area': {
+      const city = await selectServiceAreaCity(db);
+      if (!city) return null;
+      return {
+        request: {
+          type: 'service_area',
+          city,
+          customPrompt: `Feature real local business variety in ${city} and explain what makes the community distinct. Avoid repeating the same businesses in every paragraph.`
+        },
+        selectionReason: `Selected service area city with low recent usage: ${city}`
+      };
+    }
+    case 'category': {
+      const category = await selectCategoryForAutomation(db);
+      if (!category) return null;
+      return {
+        request: {
+          type: 'category',
+          category_id: category.id,
+          customPrompt: `Focus on useful buyer guidance for ${category.name} customers in Southeast Oklahoma. Mention local business examples naturally and avoid generic national-market filler.`
+        },
+        selectionReason: `Selected category with low recent usage: ${category.name} (#${category.id})`
+      };
+    }
+    case 'business_spotlight': {
+      const business = await selectBusinessSpotlightCandidate(db);
+      if (!business) return null;
+      return {
+        request: {
+          type: 'business_spotlight',
+          business_id: business.id,
+          customPrompt: `Write a genuine local-business spotlight for ${business.name} in ${business.city}. Emphasize concrete services, community relevance, and specific differentiators. Do not overhype or sound templated.`
+        },
+        selectionReason: `Selected business spotlight candidate with least recent spotlight usage: ${business.name} (#${business.id})`
+      };
+    }
+  }
+}
+
+async function selectServiceAreaCity(db: DatabaseService): Promise<string | null> {
+  const city = await db.db.prepare(`
+    SELECT b.city
+    FROM businesses b
+    WHERE b.is_active = 1
+      AND b.city IS NOT NULL
+      AND TRIM(b.city) != ''
+    GROUP BY b.city
+    ORDER BY (
+      SELECT COUNT(*)
+      FROM blog_posts bp
+      WHERE bp.is_published = 1
+        AND bp.slug LIKE 'local-businesses-' || LOWER(REPLACE(b.city, ' ', '-')) || '-%'
+    ) ASC,
+    (
+      SELECT COALESCE(MAX(bp.publish_date), 0)
+      FROM blog_posts bp
+      WHERE bp.is_published = 1
+        AND bp.slug LIKE 'local-businesses-' || LOWER(REPLACE(b.city, ' ', '-')) || '-%'
+    ) ASC,
+    COUNT(*) DESC,
+    b.city ASC
+    LIMIT 1
+  `).first<{ city: string }>();
+
+  return city?.city || null;
+}
+
+async function selectCategoryForAutomation(db: DatabaseService): Promise<{ id: number; name: string; slug: string } | null> {
+  return await db.db.prepare(`
+    SELECT c.id, c.name, c.slug
+    FROM categories c
+    JOIN businesses b ON b.category_id = c.id AND b.is_active = 1
+    GROUP BY c.id, c.name, c.slug, c.display_order
+    ORDER BY (
+      SELECT COUNT(*)
+      FROM blog_posts bp
+      WHERE bp.is_published = 1
+        AND bp.slug LIKE 'guide-' || c.slug || '-southeast-oklahoma-%'
+    ) ASC,
+    (
+      SELECT COALESCE(MAX(bp.publish_date), 0)
+      FROM blog_posts bp
+      WHERE bp.is_published = 1
+        AND bp.slug LIKE 'guide-' || c.slug || '-southeast-oklahoma-%'
+    ) ASC,
+    COUNT(b.id) DESC,
+    c.display_order ASC,
+    c.name ASC
+    LIMIT 1
+  `).first<{ id: number; name: string; slug: string }>();
+}
+
+async function selectBusinessSpotlightCandidate(db: DatabaseService): Promise<{ id: number; name: string; city: string } | null> {
+  return await db.db.prepare(`
+    SELECT b.id, b.name, b.city
+    FROM businesses b
+    LEFT JOIN (
+      SELECT business_id,
+             MAX(publish_date) AS last_publish_date,
+             COUNT(*) AS publish_count
+      FROM blog_posts
+      WHERE is_published = 1
+        AND business_id IS NOT NULL
+      GROUP BY business_id
+    ) recent ON recent.business_id = b.id
+    WHERE b.is_active = 1
+    ORDER BY COALESCE(recent.publish_count, 0) ASC,
+             COALESCE(recent.last_publish_date, 0) ASC,
+             b.is_featured DESC,
+             b.google_rating DESC,
+             b.google_review_count DESC,
+             b.name ASC
+    LIMIT 1
+  `).first<{ id: number; name: string; city: string }>();
+}
+
+async function autoApproveFirstCandidateImage(
+  env: Env,
+  db: DatabaseService,
+  blogId: number
+): Promise<{ approved: boolean; featuredImage?: string }> {
+  const approvedImage = await db.db.prepare(`
+    SELECT id, image_key
+    FROM blog_images
+    WHERE blog_post_id = ?
+    ORDER BY display_order ASC, id ASC
+    LIMIT 1
+  `).bind(blogId).first<{ id: number; image_key: string }>();
+
+  if (!approvedImage) {
+    return { approved: false };
+  }
+
+  const featuredImage = `/images/${approvedImage.image_key}`;
+
+  await db.db.prepare(`UPDATE blog_images SET is_approved = 0 WHERE blog_post_id = ?`).bind(blogId).run();
+  await db.db.prepare(`UPDATE blog_images SET is_approved = 1 WHERE id = ?`).bind(approvedImage.id).run();
+  await db.db.prepare(`
+    UPDATE blog_posts
+    SET featured_image = ?, updated_at = unixepoch()
+    WHERE id = ?
+  `).bind(featuredImage, blogId).run();
+
+  const { results: otherImages } = await db.db.prepare(`
+    SELECT id, image_key
+    FROM blog_images
+    WHERE blog_post_id = ? AND id != ?
+  `).bind(blogId, approvedImage.id).all<{ id: number; image_key: string }>();
+
+  for (const image of otherImages || []) {
+    try {
+      await env.IMAGES.delete(image.image_key);
+      console.log('Deleted unapproved automated blog image:', image.image_key);
+    } catch (error) {
+      console.error('Failed deleting unapproved automated blog image:', image.image_key, error);
+    }
+  }
+
+  await db.db.prepare(`DELETE FROM blog_images WHERE blog_post_id = ? AND id != ?`).bind(blogId, approvedImage.id).run();
+
+  return {
+    approved: true,
+    featuredImage
+  };
+}
+
+/**
  * Generate blog content using Llama 3 8B
  */
 async function generateBlogContent(
   env: Env,
   db: DatabaseService,
   request: BlogGenerationRequest
-): Promise<{ title: string; slug: string; excerpt: string; content: string; featured_image?: string }> {
+): Promise<GeneratedBlogData> {
 
   let prompt = '';
   let title = '';
   let slug = '';
   let excerpt = '';
   let featured_image = '';
+  let business_id: number | undefined;
+  const currentYear = new Date().getUTCFullYear();
+  const uniqueSlugSuffix = `${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
 
   // Build prompt based on blog type
   if (request.type === 'business_spotlight') {
     const business = await db.db.prepare('SELECT * FROM businesses WHERE id = ?').bind(request.business_id).first();
     if (!business) throw new Error('Business not found');
+    business_id = Number(request.business_id);
 
     title = `Spotlight: ${business.name} - ${business.city}'s Premier Business`;
     // Add timestamp suffix to prevent duplicate spotlights
@@ -169,8 +460,8 @@ Write the blog post now in markdown format:`;
 
     const categoryBusinesses = await db.getBusinessesByCategory((category as any).slug, 5);
 
-    title = `Complete Guide to ${(category as any).name} Services in Southeast Oklahoma 2025`;
-    slug = `guide-${(category as any).slug}-southeast-oklahoma`;
+    title = `Complete Guide to ${(category as any).name} Services in Southeast Oklahoma ${currentYear}`;
+    slug = `guide-${(category as any).slug}-southeast-oklahoma-${uniqueSlugSuffix}`;
     excerpt = `Find the best ${(category as any).name} services in Southeast Oklahoma. Expert guide with tips for choosing providers.`;
 
     const businessList = categoryBusinesses.map((b: any) => `- ${b.name} (${b.city}, ${b.state})`).join('\n');
@@ -194,8 +485,8 @@ Write the blog post now:`;
     const city = request.city || 'Valliant';
     const cityBusinesses = await db.db.prepare('SELECT * FROM businesses WHERE city = ? AND is_active = 1 LIMIT 5').bind(city).all();
 
-    title = `Best Local Businesses in ${city}, Oklahoma - 2025 Community Guide`;
-    slug = `local-businesses-${city.toLowerCase().replace(/\s+/g, '-')}`;
+    title = `Best Local Businesses in ${city}, Oklahoma - ${currentYear} Community Guide`;
+    slug = `local-businesses-${city.toLowerCase().replace(/\s+/g, '-')}-${uniqueSlugSuffix}`;
     excerpt = `Discover the best local businesses in ${city}, Oklahoma. Support your community.`;
 
     const businessList = (cityBusinesses.results || []).map((b: any) => `- ${b.name} - ${b.description || 'Local business'}`).join('\n');
@@ -241,7 +532,7 @@ Write the blog post now:`;
   }
 
   // Call Llama AI to generate content
-  const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+  const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
     messages: [
       { role: 'system', content: 'You are an expert SEO content writer specializing in local business marketing.' },
       { role: 'user', content: prompt }
@@ -251,7 +542,7 @@ Write the blog post now:`;
 
   const content = (aiResponse as any).response || '';
 
-  return { title, slug, excerpt, content, featured_image };
+  return { business_id, title, slug, excerpt, content, featured_image };
 }
 
 /**
@@ -280,7 +571,7 @@ Return ONLY a JSON array of 3 strings, each being a detailed image prompt (30-50
 Example format: ["professional electrician working on residential panel in modern Oklahoma home, bright natural lighting, safety equipment visible, clean professional appearance", "..."]`;
 
   try {
-    const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
       messages: [
         { role: 'system', content: 'You are an expert at creating detailed image generation prompts.' },
         { role: 'user', content: prompt }
@@ -382,7 +673,8 @@ async function generateBlogImages(
   }
 
   if (imageKeys.length === 0) {
-    throw new Error('Failed to generate any images');
+    console.warn('Blog image generation produced no usable images; continuing without a generated image.');
+    return [];
   }
 
   return imageKeys;
@@ -393,7 +685,7 @@ async function generateBlogImages(
  */
 async function saveBlogWithImages(
   db: DatabaseService,
-  blogData: { title: string; slug: string; excerpt: string; content: string; featured_image?: string },
+  blogData: GeneratedBlogData,
   imageKeys: string[]
 ): Promise<number> {
 
@@ -403,10 +695,10 @@ async function saveBlogWithImages(
     slug: blogData.slug,
     excerpt: blogData.excerpt,
     content: blogData.content,
-    featured_image: blogData.featured_image || null,
+    featured_image: blogData.featured_image,
     author: 'KiamichiBizConnect AI',
     is_published: false, // Save as draft for approval
-    business_id: null
+    business_id: blogData.business_id
   });
 
   // Save candidate images to blog_images table (only if images were generated)

@@ -6,7 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 # Routes for production domain
 routes = ["kiamichibizconnect.com/*", "www.kiamichibizconnect.com/*"]
 
-# D1 Database
+# Daily blog automation at 14:15 UTC
+triggers = { crons = ["15 14 * * *"] }
+
 [[d1_databases]]
 binding = "DB"
 database_name = "kiamichi-biz-connect-db"

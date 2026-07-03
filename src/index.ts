@@ -24,8 +24,19 @@ import {
   handleGitHubCallback
 } from './auth/github';
 import { requireAdminAuth } from './auth/middleware';
+import { runAutomatedDailyBlog } from './workers/blogWorker';
 
 export default {
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    console.log('KBC daily blog cron triggered', {
+      cron: controller.cron,
+      scheduledTime: controller.scheduledTime,
+    });
+
+    const db = new DatabaseService(env.DB);
+    ctx.waitUntil(runDailyBlogAutomation(env, db, controller.scheduledTime));
+  },
+
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -301,6 +312,25 @@ Disallow: /auth/*`, {
     }
   },
 };
+
+async function runDailyBlogAutomation(env: Env, db: DatabaseService, scheduledTime: number): Promise<void> {
+  console.log('Preparing automated KBC daily blog run', { scheduledTime });
+
+  const automated = await runAutomatedDailyBlog(env, db);
+  if (!automated.success || !automated.blog_id) {
+    throw new Error(automated.error || 'Automated blog worker did not return a published blog_id');
+  }
+
+  console.log('KBC daily blog published', {
+    blog_id: automated.blog_id,
+    title: automated.title,
+    slug: automated.slug,
+    type: automated.strategy,
+    featured_image: automated.featured_image,
+    image_auto_approved: automated.image_auto_approved,
+    selection_reason: automated.selection_reason,
+  });
+}
 
 // Homepage handler
 async function handleHomepage(db: DatabaseService, env: Env): Promise<Response> {

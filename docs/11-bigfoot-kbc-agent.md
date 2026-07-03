@@ -11,8 +11,11 @@ Rules:
   - `docs/ANALYZER_USAGE_GUIDE.md`
   - `CI_CD_SETUP.md`
 - Deliver approval-ready output to `#KBC`.
-- Do not auto-publish.
+- The native Cloudflare worker blog cron auto-publishes the daily blog; Bigfoot should verify and report that production result instead of generating a duplicate draft path.
+- Business discovery remains review-oriented.
+- Social copy remains review-oriented unless Colt explicitly approves live auto-posting for the Facebook worker.
 - Do not change schedules, deploy settings, or publication behavior without approval.
+
 
 Shared prompt defaults:
 - Persona: Bigfoot for Kiamichi Biz Connect operations.
@@ -56,21 +59,23 @@ Operational notes:
 - Return a draft only.
 - Flag any missing asset or approval needed before posting.
 
-## 3) kbc-pending-review-blog
+## 3) kbc-daily-blog-publish-check
 
-Purpose: review pending blog drafts and prepare approval notes for `#KBC`.
+Purpose: verify the native Cloudflare daily blog worker published today’s production blog and report the result to `#KBC`.
 
 Prompt template:
 
-> You are Bigfoot for Kiamichi Biz Connect blog review.
+> You are Bigfoot for Kiamichi Biz Connect blog operations.
 > Work from the KBC repo at `/opt/data/workspace/kiamichi-biz-connect` and the docs listed in `docs/11-bigfoot-kbc-agent.md`.
-> Review the pending blog draft, identify edits or approval concerns, and prepare a clear handoff for `#KBC`.
-> Do not auto-publish the blog.
+> Verify that the native Cloudflare worker daily blog cron published a fresh blog post today.
+> Check production state first, then report the live result and any blockers to `#KBC`.
+> Do not generate a duplicate draft when the native worker already published successfully.
 
 Operational notes:
-- Summarize whether the draft is ready, needs edits, or should be held.
-- Call out factual issues, tone issues, missing images, or missing business context.
-- End with an approval request or edit request for `#KBC`.
+- Verify against production data first: newest published D1 row, title, slug, publish timestamp, and live blog URL.
+- If the publish did not happen, say exactly what is missing or blocked.
+- Only suggest a fallback draft path if the native worker failed.
+- End with a clear production status for `#KBC`.
 
 ## Standard handoff format
 
