@@ -21,7 +21,7 @@
   "author": "Southeast Remodeling Solutions",
   "license": "UNLICENSED",
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20251209.0",
-    "wrangler": "^4.53.0"
+    "@cloudflare/workers-types": "^5.20260714.1",
+    "wrangler": "^4.112.0"
   }
 }

@@ -175,7 +175,7 @@ ${business.facebook_url
   : `Mention ${business.name} naturally but don't use @tag.`
 }`;
 
-    const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }

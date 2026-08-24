@@ -77,7 +77,7 @@ ${business.facebook_url
 
 Make it feel authentic and excited, like you're genuinely recommending this place to friends.`;
 
-      const response = await env.AI.run("@cf/meta/llama-3-8b-instruct", {
+      const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
@@ -159,7 +159,7 @@ OUTPUT: Return ONLY the image generation prompt, nothing else.`;
 
 Generate a prompt for a ${style} style photograph that would accompany this post. Focus on the actual business service/product in a real-world setting.`;
 
-      const promptResponse = await env.AI.run("@cf/meta/llama-3-8b-instruct", {
+      const promptResponse = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
         messages: [
           { role: "system", content: imageSystemPrompt },
           { role: "user", content: imageUserPrompt }

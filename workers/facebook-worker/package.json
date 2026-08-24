@@ -7,7 +7,7 @@
     "dev": "wrangler dev --config ./wrangler.toml"
   },
   "devDependencies": {
-    "wrangler": "^4.53.0"
+    "wrangler": "^4.112.0"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.4"

@@ -11,7 +11,7 @@ import {
 } from '../../../src/facebook-oauth';
 import { selectTopPosts, calculateVerificationScore } from '../../../src/facebook-ai-analyzer';
 import { populateContentQueue, getQueueStatus, getAnalyticsSummary } from '../../../src/facebook-scheduler';
-import type { FacebookContentQueue } from '../../../src/types';
+import type { FacebookContentQueue, FacebookPostInsights } from '../../../src/types';
 import { postToPage as officialPostToPage, postToGroup as officialPostToGroup } from './fb-official-api';
 import { processComments } from '../../../src/facebook-comment-monitor';
 import { rotateFeaturedBusinesses, getFeaturedStatus, manuallyFeatureBusiness, lockSlot, unlockSlot, getFeaturedTierMembers, addToFeaturedTier, removeFromFeaturedTier } from './featured-rotation';
@@ -313,7 +313,7 @@ ${business.facebook_url
 
 Around 80-100 words.`;
 
-          const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+          const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }
@@ -774,7 +774,7 @@ The image should look like authentic professional business photography, NOT a so
             const userPrompt = `Write a Facebook spotlight for: ${business.name} (${business.category_name || 'local business'}) in ${business.city || 'Kiamichi country'}. ${business.description ? `About them: ${business.description}` : ''}`;
             
             try {
-              const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+              const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
                 messages: [
                   { role: 'system', content: systemPrompt },
                   { role: 'user', content: userPrompt }
@@ -1350,6 +1350,71 @@ async function monitorAndRespondToComments(env: any): Promise<void> {
   } catch (error) {
     console.error('Error monitoring comments:', error);
   }
+}
+
+async function delayForRateLimit(ms: number = 500): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getPostInsights(postId: string, accessToken: string): Promise<FacebookPostInsights> {
+  const fields = [
+    'post_impressions',
+    'post_impressions_unique',
+    'post_engaged_users',
+    'post_clicks',
+    'post_reactions_by_type_total',
+  ].join(',');
+
+  const response = await fetch(
+    `https://graph.facebook.com/v18.0/${postId}/insights?metric=${fields}&access_token=${encodeURIComponent(accessToken)}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch post insights: ${await response.text()}`);
+  }
+
+  const data: any = await response.json();
+  const insights: FacebookPostInsights = {};
+
+  for (const metric of data.data || []) {
+    const value = metric?.values?.[0]?.value;
+    switch (metric.name) {
+      case 'post_impressions':
+        insights.post_impressions = value;
+        break;
+      case 'post_impressions_unique':
+        insights.post_impressions_unique = value;
+        break;
+      case 'post_engaged_users':
+        insights.post_engaged_users = value;
+        break;
+      case 'post_clicks':
+        insights.post_clicks = value;
+        break;
+      case 'post_reactions_by_type_total':
+        insights.post_reactions_by_type_total = value;
+        break;
+    }
+  }
+
+  return insights;
+}
+
+async function getPostEngagement(postId: string, accessToken: string): Promise<{ likes: number; comments: number; shares: number }> {
+  const response = await fetch(
+    `https://graph.facebook.com/v18.0/${postId}?fields=likes.summary(true).limit(0),comments.summary(true).limit(0),shares&access_token=${encodeURIComponent(accessToken)}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch post engagement: ${await response.text()}`);
+  }
+
+  const data: any = await response.json();
+  return {
+    likes: data?.likes?.summary?.total_count || 0,
+    comments: data?.comments?.summary?.total_count || 0,
+    shares: data?.shares?.count || 0,
+  };
 }
 
 /**
