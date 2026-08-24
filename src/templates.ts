@@ -5,7 +5,7 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title} | ${env.SITE_NAME}</title>
-    <meta name="description" content="Find local service businesses in Southeast Oklahoma, Northeast Texas, and Southwest Arkansas">
+    <meta name="description" content="Find local businesses in Southeast Oklahoma, Northeast Texas, and Southwest Arkansas">
     ${extraHead}
         <script src="https://cdn.tailwindcss.com"></script>
         <script>
@@ -237,7 +237,7 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
         <nav class="container mx-auto px-4 py-4">
             <div class="flex items-center justify-between">
                 <a href="/" class="flex items-center">
-                    <img src="/logo.png" alt="${env.SITE_NAME}" class="h-20 md:h-24 w-auto">
+                    <img src="/logo.png" alt="${env.SITE_NAME}" class="h-16 w-16 md:h-20 md:w-20 rounded-2xl object-cover ring-1 ring-white/10 shadow-lg">
                 </a>
                 <div class="hidden md:flex space-x-6">
                     <a href="/" class="text-gray-300 hover:text-[#FFCB67] transition-colors">Home</a>
@@ -262,7 +262,7 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
         <div class="container mx-auto px-4 py-12">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
                 <div>
-                    <img src="/logo.png" alt="${env.SITE_NAME}" class="h-24 w-auto mb-4">
+                    <img src="/logo.png" alt="${env.SITE_NAME}" class="h-20 w-20 md:h-24 md:w-24 rounded-2xl object-cover ring-1 ring-white/10 shadow-lg mb-4">
                     <p class="text-gray-400">Your local business directory for Southeast Oklahoma, Northeast Texas, and Southwest Arkansas</p>
                 </div>
                 <div>
@@ -302,8 +302,8 @@ export const homepageContent = (data: any) => `
     <!-- Hero Section -->
     <section class="gradient-bg text-white py-20">
         <div class="container mx-auto px-4 text-center">
-            <h1 class="text-5xl font-bold mb-6">Find Local Service Businesses</h1>
-            <p class="text-xl mb-8 opacity-90">Discover trusted businesses in Southeast Oklahoma, Northeast Texas & Southwest Arkansas</p>
+            <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold mb-6 leading-[0.95] max-w-4xl mx-auto">Find Local Businesses</h1>
+            <p class="text-lg md:text-xl mb-8 opacity-90 max-w-3xl mx-auto">Discover trusted businesses in Southeast Oklahoma, Northeast Texas & Southwest Arkansas</p>
             
             <!-- Search Bar -->
             <div class="max-w-4xl mx-auto search-container rounded-2xl p-6 shadow-2xl relative z-10">
@@ -344,6 +344,56 @@ export const homepageContent = (data: any) => `
             </div>
         </div>
     </section>
+
+    ${data.homepageAds && data.homepageAds.length > 0 ? `
+    <!-- Sponsored Placements -->
+    <section class="container mx-auto px-4 py-10">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <p class="text-sm uppercase tracking-[0.2em] text-[#ED5409] font-semibold">Sponsored placements</p>
+                <h2 class="text-2xl md:text-3xl font-bold text-primary mt-1">Businesses advertising on the site</h2>
+            </div>
+            <a href="/advertise" class="sonic-orange font-semibold hover:text-[#FFCB67] transition-colors">Advertise →</a>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            ${data.homepageAds.slice(0, 3).map((ad: any) => `
+                <a href="/business/${ad.slug}" class="glow-card block overflow-hidden group">
+                    <div class="h-44 bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden">
+                        ${(ad.image_url || (ad as any).facebook_image_url) ? `
+                            <img src="${ad.image_url || (ad as any).facebook_image_url}" alt="${ad.name}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                        ` : ''}
+                        <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
+                    </div>
+                    <div class="p-5">
+                        <div class="flex items-center justify-between gap-3 mb-2">
+                            <h3 class="text-xl font-bold text-primary group-hover:text-[#FFCB67] transition-colors">${ad.name}</h3>
+                            <span class="text-xs uppercase tracking-[0.2em] text-[#ED5409]">${ad.placement_type.replace('-', ' ')}</span>
+                        </div>
+                        <p class="text-secondary text-sm mb-3">${ad.city}, ${ad.state}</p>
+                        ${ad.description ? `<p class="text-gray-300 line-clamp-3 mb-4">${ad.description}</p>` : ''}
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="sonic-orange font-semibold">View sponsor →</span>
+                            ${typeof ad.price_paid === 'number' ? `<span class="text-secondary">$${ad.price_paid.toFixed(0)} paid</span>` : ''}
+                        </div>
+                    </div>
+                </a>
+            `).join('')}
+        </div>
+    </section>
+    ` : `
+    <section class="container mx-auto px-4 py-10">
+        <div class="glow-card p-8 border border-dashed border-gray-700 bg-black/20">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <p class="text-sm uppercase tracking-[0.2em] text-[#ED5409] font-semibold">Sponsored placements</p>
+                    <h2 class="text-2xl md:text-3xl font-bold text-primary mt-1">Your business could be featured here</h2>
+                    <p class="text-secondary mt-2 max-w-2xl">Auction-backed placements rotate through the homepage, category pages, and blog sidebars. When no winner is live, this spot stays open for the next advertiser.</p>
+                </div>
+                <a href="/advertise" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold inline-block whitespace-nowrap">Advertise now</a>
+            </div>
+        </div>
+    </section>
+    `}
 
     <!-- Featured Businesses -->
     <section class="container mx-auto px-4 py-16">

@@ -227,15 +227,34 @@ Disallow: /auth/*`, {
         return await handleBlog(db, env);
       }
 
-      // Serve logo from R2
+      // Serve logo from the committed avatar asset, with R2 fallback
       if (path === '/logo.png') {
+        const avatarUrl = 'https://raw.githubusercontent.com/mintedmaterial/kiamichi-Biz-Connect/facebook-automation-fix/assets/brand/avatar/kbc-bigfoot-reference.jpg';
+
+        try {
+          const avatarResponse = await fetch(avatarUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+          });
+
+          if (avatarResponse.ok) {
+            return new Response(avatarResponse.body, {
+              headers: {
+                'Content-Type': avatarResponse.headers.get('content-type') || 'image/jpeg',
+                'Cache-Control': 'public, max-age=31536000'
+              }
+            });
+          }
+        } catch (error) {
+          console.warn('Avatar logo fetch failed, using fallback logo.png', error);
+        }
+
         const object = await env.IMAGES.get('logo.png');
         if (!object) {
           return new Response('Logo not found', { status: 404 });
         }
         return new Response(object.body, {
           headers: {
-            'Content-Type': 'image/png',
+            'Content-Type': object.httpMetadata?.contentType || 'image/png',
             'Cache-Control': 'public, max-age=31536000'
           }
         });
@@ -420,14 +439,15 @@ Disallow: /auth/*`, {
 
 // Homepage handler
 async function handleHomepage(db: DatabaseService, env: Env): Promise<Response> {
-  const [categories, featured, stats, blogPosts] = await Promise.all([
+  const [categories, featured, stats, blogPosts, homepageAds] = await Promise.all([
     db.getAllCategories(),
     db.getFeaturedBusinesses(6),
     db.getStats(),
-    db.getRecentBlogPosts(3)
+    db.getRecentBlogPosts(3),
+    db.getActiveAdPlacements('homepage-featured')
   ]);
 
-  const content = homepageContent({ categories, featured, stats, blogPosts });
+  const content = homepageContent({ categories, featured, stats, blogPosts, homepageAds });
   const html = htmlTemplate('Home - Find Local Businesses', content, env);
 
   return new Response(html, {
@@ -1582,11 +1602,55 @@ async function handleCategoriesList(db: DatabaseService, env: Env): Promise<Resp
 
 // Blog handler
 async function handleBlog(db: DatabaseService, env: Env): Promise<Response> {
-  const posts = await db.getRecentBlogPosts(20);
+  const [posts, sponsoredAds] = await Promise.all([
+    db.getRecentBlogPosts(20),
+    db.getActiveAdPlacements('sponsored')
+  ]);
 
   const content = `
     <div class="container mx-auto px-4 py-12">
       <h1 class="text-4xl font-bold text-center mb-12 text-primary">Business Spotlights & News</h1>
+
+      ${sponsoredAds.length > 0 ? `
+        <section class="mb-12">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <p class="text-sm uppercase tracking-[0.2em] text-[#ED5409] font-semibold">Sponsored placements</p>
+              <h2 class="text-2xl font-bold text-primary mt-1">Businesses advertising right now</h2>
+            </div>
+            <a href="/advertise" class="sonic-orange font-semibold hover:text-[#FFCB67] transition-colors">Advertise →</a>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            ${sponsoredAds.slice(0, 3).map((ad: any) => `
+              <a href="/business/${ad.slug}" class="glow-card block overflow-hidden group">
+                <div class="h-44 bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden">
+                  ${(ad.image_url || (ad as any).facebook_image_url) ? `<img src="${ad.image_url || (ad as any).facebook_image_url}" alt="${ad.name}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">` : ''}
+                  <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
+                </div>
+                <div class="p-5">
+                  <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${ad.name}</h3>
+                  <p class="text-secondary text-sm mb-3">${ad.city}, ${ad.state}</p>
+                  ${ad.description ? `<p class="text-gray-300 line-clamp-3 mb-4">${ad.description}</p>` : ''}
+                  <span class="sonic-orange font-semibold">View sponsor →</span>
+                </div>
+              </a>
+            `).join('')}
+          </div>
+        </section>
+      ` : `
+        <section class="mb-12">
+          <div class="glow-card p-8 border border-dashed border-gray-700 bg-black/20">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <p class="text-sm uppercase tracking-[0.2em] text-[#ED5409] font-semibold">Sponsored placements</p>
+                <h2 class="text-2xl font-bold text-primary mt-1">Your business can sponsor this section</h2>
+                <p class="text-secondary mt-2 max-w-2xl">Blog pages highlight the current auction winners when they’re live, and otherwise keep a dedicated sponsor slot ready for the next advertiser.</p>
+              </div>
+              <a href="/advertise" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold inline-block whitespace-nowrap">Advertise now</a>
+            </div>
+          </div>
+        </section>
+      `}
 
       ${posts.length === 0 ? `
         <div class="text-center text-secondary py-12">
@@ -1624,7 +1688,10 @@ async function handleBlog(db: DatabaseService, env: Env): Promise<Response> {
 
 // Individual blog post handler
 async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Promise<Response> {
-  const post = await db.getBlogPostBySlug(slug);
+  const [post, sidebarAds] = await Promise.all([
+    db.getBlogPostBySlug(slug),
+    db.getActiveAdPlacements('sidebar')
+  ]);
 
   if (!post) {
     return new Response('Blog post not found', { status: 404 });
@@ -1739,13 +1806,27 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
           <!-- Sidebar with Ad Placeholders -->
           <aside class="lg:col-span-4 space-y-6">
 
-            <!-- Ad Space 1 - Top -->
+            ${sidebarAds[0] ? `
+            <a href="/business/${sidebarAds[0].slug}" class="glow-card block overflow-hidden group">
+              <div class="bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden rounded-lg">
+                ${(sidebarAds[0].image_url || (sidebarAds[0] as any).facebook_image_url) ? `<img src="${sidebarAds[0].image_url || (sidebarAds[0] as any).facebook_image_url}" alt="${sidebarAds[0].name}" class="w-full h-52 object-cover group-hover:scale-105 transition-transform duration-300">` : `<div class="h-52"></div>`}
+                <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
+              </div>
+              <div class="p-5">
+                <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${sidebarAds[0].name}</h3>
+                <p class="text-secondary text-sm mb-3">${sidebarAds[0].city}, ${sidebarAds[0].state}</p>
+                <p class="text-gray-300 text-sm line-clamp-4 mb-4">${sidebarAds[0].description || 'Sponsored placement on Kiamichi Biz Connect.'}</p>
+                <span class="sonic-orange font-semibold">View sponsor →</span>
+              </div>
+            </a>
+            ` : `
             <div class="glow-card p-6 text-center">
               <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-8 border-2 border-dashed border-gray-700">
                 <p class="text-gray-500 text-sm mb-2">Advertisement</p>
                 <p class="text-gray-600 text-xs">300x250</p>
               </div>
             </div>
+            `}
 
             <!-- Popular Posts -->
             <div class="glow-card p-6">
@@ -1763,13 +1844,27 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
               </div>
             </div>
 
-            <!-- Ad Space 2 - Middle -->
+            ${sidebarAds[1] ? `
+            <a href="/business/${sidebarAds[1].slug}" class="glow-card block overflow-hidden group">
+              <div class="bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden rounded-lg">
+                ${(sidebarAds[1].image_url || (sidebarAds[1] as any).facebook_image_url) ? `<img src="${sidebarAds[1].image_url || (sidebarAds[1] as any).facebook_image_url}" alt="${sidebarAds[1].name}" class="w-full h-52 object-cover group-hover:scale-105 transition-transform duration-300">` : `<div class="h-52"></div>`}
+                <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
+              </div>
+              <div class="p-5">
+                <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${sidebarAds[1].name}</h3>
+                <p class="text-secondary text-sm mb-3">${sidebarAds[1].city}, ${sidebarAds[1].state}</p>
+                <p class="text-gray-300 text-sm line-clamp-4 mb-4">${sidebarAds[1].description || 'Sponsored placement on Kiamichi Biz Connect.'}</p>
+                <span class="sonic-orange font-semibold">View sponsor →</span>
+              </div>
+            </a>
+            ` : `
             <div class="glow-card p-6 text-center">
               <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-8 border-2 border-dashed border-gray-700">
                 <p class="text-gray-500 text-sm mb-2">Advertisement</p>
                 <p class="text-gray-600 text-xs">300x250</p>
               </div>
             </div>
+            `}
 
             <!-- Categories -->
             <div class="glow-card p-6">
@@ -1779,7 +1874,20 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
               </div>
             </div>
 
-            <!-- Ad Space 3 - Bottom -->
+            ${sidebarAds[2] ? `
+            <a href="/business/${sidebarAds[2].slug}" class="glow-card block overflow-hidden group sticky top-24">
+              <div class="bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden rounded-lg">
+                ${(sidebarAds[2].image_url || (sidebarAds[2] as any).facebook_image_url) ? `<img src="${sidebarAds[2].image_url || (sidebarAds[2] as any).facebook_image_url}" alt="${sidebarAds[2].name}" class="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300">` : `<div class="h-64"></div>`}
+                <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
+              </div>
+              <div class="p-5">
+                <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${sidebarAds[2].name}</h3>
+                <p class="text-secondary text-sm mb-3">${sidebarAds[2].city}, ${sidebarAds[2].state}</p>
+                <p class="text-gray-300 text-sm line-clamp-4 mb-4">${sidebarAds[2].description || 'Sponsored placement on Kiamichi Biz Connect.'}</p>
+                <span class="sonic-orange font-semibold">View sponsor →</span>
+              </div>
+            </a>
+            ` : `
             <div class="glow-card p-6 text-center sticky top-24">
               <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-12 border-2 border-dashed border-gray-700">
                 <p class="text-gray-500 text-sm mb-2">Advertisement</p>
@@ -1787,6 +1895,7 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
                 <p class="text-gray-700 text-xs mt-4">Sticky Ad</p>
               </div>
             </div>
+            `}
 
           </aside>
         </div>
