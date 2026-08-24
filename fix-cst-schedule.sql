@@ -9,11 +9,11 @@ DELETE FROM facebook_posting_schedule;
 -- Insert corrected schedule for desired CST times
 INSERT INTO facebook_posting_schedule (time_slot, hour_utc, minute, preferred_content_types, target_type) VALUES
   -- 9 AM CST = 3 PM UTC - Morning post
-  ('morning', 15, 0, '["business_spotlight", "category_highlight"]', 'both'),
+  ('morning', 15, 0, '["sponsored_placement", "business_spotlight", "category_highlight"]', 'both'),
   -- 4 PM CST = 10 PM UTC - Afternoon post
-  ('afternoon', 22, 0, '["blog_share", "business_spotlight"]', 'both'),
+  ('afternoon', 22, 0, '["blog_share", "sponsored_placement", "business_spotlight"]', 'both'),
   -- 9 PM CST = 3 AM UTC (next day) - Evening post  
-  ('evening', 3, 0, '["business_spotlight", "engagement_prompt"]', 'both');
+  ('evening', 3, 0, '["business_spotlight", "engagement_prompt", "sponsored_placement"]', 'both');
 
 -- Verify the fix
 SELECT 'Fixed posting schedule for CST times:' as status;

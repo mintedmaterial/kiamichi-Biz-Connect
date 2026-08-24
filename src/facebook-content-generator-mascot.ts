@@ -178,6 +178,12 @@ We've got you covered! Check out these local ${category.name.toLowerCase()} busi
 
 Browse the full directory at the link below.`;
 
+    case 'sponsored_placement':
+      if (!business) throw new Error('Business required for sponsored_placement');
+      return `Share a friendly community update about ${business.name} being featured in one of our sponsored placements.
+
+Mention that Kiamichi Biz Connect now has premium ad spots and auction-backed visibility for local businesses that want to stand out. Keep Bigfoot Jr. in the mix naturally if it fits the post. Short, warm, and local-first.`;
+
     case 'engagement_prompt':
       // Community engagement questions
       const questions = [

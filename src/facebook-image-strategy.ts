@@ -5,7 +5,7 @@ import type { Env, Business, BlogPost, Category } from './types';
 
 export async function generatePostWithImageStrategy(
   env: Env,
-  contentType: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt',
+  contentType: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt' | 'sponsored_placement',
   business?: Business,
   blogPost?: BlogPost,
   category?: Category
@@ -24,8 +24,8 @@ export async function generatePostWithImageStrategy(
   let shouldGenerateImage = false;
   let imageUrl: string | undefined;
   
-  // For business spotlights: 2/3 use business photo, 1/3 generate new image
-  if (contentType === 'business_spotlight' && business) {
+  // For business spotlights and sponsored placements: 2/3 use business photo, 1/3 generate new image
+  if ((contentType === 'business_spotlight' || contentType === 'sponsored_placement') && business) {
     if (Math.random() < 0.67) {
       // 67% chance: Use business photo if available
       if (business.image_url) {

@@ -175,7 +175,7 @@ export interface PostAnalysisResult {
 
 export interface FacebookContentQueue {
   id: number;
-  content_type: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt';
+  content_type: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt' | 'sponsored_placement';
   target_type: 'page' | 'group' | 'both';
   business_id: number | null;
   blog_post_id: number | null;
@@ -222,11 +222,12 @@ export interface FacebookPostingSchedule {
 }
 
 export interface ContentGenerationContext {
-  contentType: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt';
+  contentType: 'business_spotlight' | 'blog_share' | 'category_highlight' | 'engagement_prompt' | 'sponsored_placement';
   targetType: 'page' | 'group' | 'both';
   business?: Business;
   blogPost?: BlogPost;
   category?: Category;
+  adPlacement?: AdPlacement;
   siteUrl: string;
   utmCampaign: string;
 }

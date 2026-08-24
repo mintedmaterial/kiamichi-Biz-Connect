@@ -1010,7 +1010,8 @@ async function processPendingPostsInternal(
             post.content_type,
             post.content_type === 'business_spotlight' ? post.business_id :
             post.content_type === 'blog_share' ? post.blog_post_id :
-            post.content_type === 'category_highlight' ? post.category_id : null,
+            post.content_type === 'category_highlight' ? post.category_id :
+            post.content_type === 'sponsored_placement' ? post.business_id : null,
             now,
             pagePostId,
             groupPostId,
