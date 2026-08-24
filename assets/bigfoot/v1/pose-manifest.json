@@ -1,0 +1,48 @@
+{
+  "version": "v1",
+  "source": "reference-conditioned",
+  "assets": [
+    {
+      "pose": "celebrate",
+      "assetKey": "mascots/bigfoot/v1/poses/celebrate.png",
+      "path": "C:\\Users\\Minte\\Desktop\\dev-code\\kiamichi-biz-connect\\assets\\bigfoot\\v1\\poses\\celebrate.png",
+      "bytes": 934267,
+      "sha256": "f02a0c8ede0f0acdb66896d0c7038a69bd7a9a2af4428edb537873dd6882f84c"
+    },
+    {
+      "pose": "point",
+      "assetKey": "mascots/bigfoot/v1/poses/point.png",
+      "path": "C:\\Users\\Minte\\Desktop\\dev-code\\kiamichi-biz-connect\\assets\\bigfoot\\v1\\poses\\point.png",
+      "bytes": 1113908,
+      "sha256": "ec77abc4651bd2679b3c62aacd2f6bfdb84b2fc42277ee4587cd200e09e39de8"
+    },
+    {
+      "pose": "thinking",
+      "assetKey": "mascots/bigfoot/v1/poses/thinking.png",
+      "path": "C:\\Users\\Minte\\Desktop\\dev-code\\kiamichi-biz-connect\\assets\\bigfoot\\v1\\poses\\thinking.png",
+      "bytes": 1029245,
+      "sha256": "72a8ffa43aa15e3e9cedfdb9c4c42edb49d12a1a1cc7b1b20e9bfa0d7fb7df45"
+    },
+    {
+      "pose": "thumbs-up",
+      "assetKey": "mascots/bigfoot/v1/poses/thumbs-up.png",
+      "path": "C:\\Users\\Minte\\Desktop\\dev-code\\kiamichi-biz-connect\\assets\\bigfoot\\v1\\poses\\thumbs-up.png",
+      "bytes": 1175193,
+      "sha256": "c68f007ae8b4704fbffa85a0464b1dc546f0dcc2d966961846c1e36c7c9afa8c"
+    },
+    {
+      "pose": "walk",
+      "assetKey": "mascots/bigfoot/v1/poses/walk.png",
+      "path": "C:\\Users\\Minte\\Desktop\\dev-code\\kiamichi-biz-connect\\assets\\bigfoot\\v1\\poses\\walk.png",
+      "bytes": 1134044,
+      "sha256": "4e62eb091489ff3756b94271130859cbc0561b6704ee7bed77fc7774ca4f3de0"
+    },
+    {
+      "pose": "wave",
+      "assetKey": "mascots/bigfoot/v1/poses/wave.png",
+      "path": "C:\\Users\\Minte\\Desktop\\dev-code\\kiamichi-biz-connect\\assets\\bigfoot\\v1\\poses\\wave.png",
+      "bytes": 998034,
+      "sha256": "b5a7aedf37afc187c5e68019988abcece84aaea5b3ebd77ff5669fd30c876a85"
+    }
+  ]
+}

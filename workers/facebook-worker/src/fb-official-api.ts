@@ -47,9 +47,14 @@ export async function postToPage(
     // External CDN URLs (like fbcdn.net) won't work
     if (options.imageUrl) {
       // Only attempt photo upload if it's from our own domain or R2
-      const isOurImage = options.imageUrl.includes('kiamichi-biz-connect') ||
-                         options.imageUrl.includes('srvcflo.workers.dev') ||
-                         options.imageUrl.includes('/images/');
+      const TRUSTED_DOMAINS = ['kiamichi-biz-connect.com', 'srvcflo.workers.dev'];
+      let isOurImage = false;
+      try {
+        const imageHostname = new URL(options.imageUrl).hostname;
+        isOurImage = TRUSTED_DOMAINS.some(domain => imageHostname.endsWith(domain));
+      } catch {
+        isOurImage = false;
+      }
 
       if (isOurImage) {
         const photoUrl = `https://graph.facebook.com/v19.0/${pageId}/photos`;
