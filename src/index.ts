@@ -304,6 +304,128 @@ Disallow: /auth/*`, {
         return new Response(htmlTemplate('Terms of Service', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
+      // About page
+      if (path === '/about') {
+        const content = `
+          <div class="container mx-auto px-4 py-12 max-w-4xl">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10">
+              <p class="text-sm font-semibold uppercase tracking-[0.2em] text-[#ED5409] mb-4">About Kiamichi Biz Connect</p>
+              <h1 class="text-4xl md:text-5xl font-bold mb-6">Local business discovery for Southeast Oklahoma and nearby communities</h1>
+              <p class="text-lg text-gray-700 mb-6">Kiamichi Biz Connect helps people find trusted local businesses, read helpful details, and discover sponsored placements that keep local advertisers visible on the site and in social posts.</p>
+              <div class="grid md:grid-cols-2 gap-6 mb-8">
+                <div class="bg-gray-50 rounded-xl p-6">
+                  <h2 class="text-xl font-bold mb-3">What we do</h2>
+                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
+                    <li>Showcase local businesses and service providers</li>
+                    <li>Surface categories, blog content, and sponsored placements</li>
+                    <li>Give business owners tools to manage their listings</li>
+                  </ul>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-6">
+                  <h2 class="text-xl font-bold mb-3">Who it's for</h2>
+                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
+                    <li>Customers looking for local options</li>
+                    <li>Businesses wanting more visibility</li>
+                    <li>Advertisers who want simple, local-first placement</li>
+                  </ul>
+                </div>
+              </div>
+              <a href="/advertise" class="inline-flex items-center px-5 py-3 rounded-lg bg-[#ED5409] text-white font-semibold hover:opacity-90">See advertising options</a>
+            </div>
+          </div>
+        `;
+        return new Response(htmlTemplate('About Kiamichi Biz Connect', content, env), { headers: { 'Content-Type': 'text/html' } });
+      }
+
+      // Advertise page
+      if (path === '/advertise') {
+        const content = `
+          <div class="container mx-auto px-4 py-12 max-w-5xl">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10">
+              <p class="text-sm font-semibold uppercase tracking-[0.2em] text-[#ED5409] mb-4">Advertise with Kiamichi Biz Connect</p>
+              <h1 class="text-4xl md:text-5xl font-bold mb-6">Sponsored placements for local businesses</h1>
+              <p class="text-lg text-gray-700 mb-8">We keep this simple: verified local businesses can get listed, featured, and promoted through sponsored placements that show up on the site and in social content.</p>
+              <div class="grid lg:grid-cols-3 gap-6 mb-8">
+                <div class="rounded-xl border border-gray-200 p-6">
+                  <h2 class="text-xl font-bold mb-2">One-time update</h2>
+                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$10-$20</p>
+                  <p class="text-gray-700">Best for a single edit to an existing listing or ad detail.</p>
+                </div>
+                <div class="rounded-xl border border-gray-200 p-6">
+                  <h2 class="text-xl font-bold mb-2">Starter access</h2>
+                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$14.99</p>
+                  <p class="text-gray-700">Basic monthly access for businesses that want an entry-level sponsored presence.</p>
+                </div>
+                <div class="rounded-xl border border-gray-200 p-6">
+                  <h2 class="text-xl font-bold mb-2">Monthly edits</h2>
+                  <p class="text-3xl font-bold text-[#ED5409] mb-2">Up to 10</p>
+                  <p class="text-gray-700">For businesses that need a small number of listing or creative changes each month.</p>
+                </div>
+              </div>
+              <div class="grid md:grid-cols-2 gap-6 mb-8">
+                <div class="bg-gray-50 rounded-xl p-6">
+                  <h2 class="text-xl font-bold mb-3">Before we edit business assets</h2>
+                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
+                    <li>The email used for the business must be verified as the business email, or the owner must have explicit access.</li>
+                    <li>We verify the business using Google Business or Facebook Business when applicable.</li>
+                    <li>This keeps sponsored content tied to legitimate local businesses.</li>
+                  </ul>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-6">
+                  <h2 class="text-xl font-bold mb-3">What sponsored placements can include</h2>
+                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
+                    <li>Homepage or category visibility</li>
+                    <li>Social worker promotion</li>
+                    <li>Auction-backed ad spot placement</li>
+                    <li>Fresh creative updates when needed</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-3">
+                <a href="/submit" class="inline-flex items-center px-5 py-3 rounded-lg bg-[#ED5409] text-white font-semibold hover:opacity-90">List your business</a>
+                <a href="/pricing" class="inline-flex items-center px-5 py-3 rounded-lg border border-gray-300 font-semibold hover:bg-gray-50">View pricing</a>
+              </div>
+            </div>
+          </div>
+        `;
+        return new Response(htmlTemplate('Advertise', content, env), { headers: { 'Content-Type': 'text/html' } });
+      }
+
+      // Pricing page
+      if (path === '/pricing') {
+        const content = `
+          <div class="container mx-auto px-4 py-12 max-w-5xl">
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10">
+              <p class="text-sm font-semibold uppercase tracking-[0.2em] text-[#ED5409] mb-4">Pricing</p>
+              <h1 class="text-4xl md:text-5xl font-bold mb-6">Simple local advertising options</h1>
+              <p class="text-lg text-gray-700 mb-8">Choose the plan that fits the amount of editing, promotion, and placement support you need.</p>
+              <div class="grid lg:grid-cols-3 gap-6">
+                <div class="rounded-xl border border-gray-200 p-6">
+                  <h2 class="text-xl font-bold mb-2">One-time listing update</h2>
+                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$10-$20</p>
+                  <p class="text-gray-700">For a single content refresh or asset change on an existing business listing.</p>
+                </div>
+                <div class="rounded-xl border-2 border-[#ED5409] p-6 shadow-sm">
+                  <h2 class="text-xl font-bold mb-2">Starter access</h2>
+                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$14.99/mo</p>
+                  <p class="text-gray-700">Basic access to sponsored visibility and lightweight listing support.</p>
+                </div>
+                <div class="rounded-xl border border-gray-200 p-6">
+                  <h2 class="text-xl font-bold mb-2">Monthly editing bundle</h2>
+                  <p class="text-3xl font-bold text-[#ED5409] mb-2">10 edits</p>
+                  <p class="text-gray-700">Up to 10 listing or creative changes per month for active advertisers.</p>
+                </div>
+              </div>
+              <div class="mt-8 bg-gray-50 rounded-xl p-6">
+                <h2 class="text-xl font-bold mb-3">Eligibility reminder</h2>
+                <p class="text-gray-700">We only update business assets after we can verify the business email or confirm explicit access, and we check Google Business or Facebook Business details when needed.</p>
+              </div>
+            </div>
+          </div>
+        `;
+        return new Response(htmlTemplate('Pricing', content, env), { headers: { 'Content-Type': 'text/html' } });
+      }
+
       // 404
       return new Response('Not Found', { status: 404 });
     } catch (error) {
