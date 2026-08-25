@@ -10,6 +10,7 @@
  */
 
 import { generateBusinessImageWithMascot, shouldIncludeMascot } from '../../../src/bigfoot-mascot';
+import { postToPage } from './fb-official-api';
 
 export interface VIPBusiness {
   id: number;
@@ -271,10 +272,37 @@ export async function processVIPBusinesses(env: any): Promise<{
     const result = await generateVIPPost(env, vipBiz);
     
     if (result.success && result.message) {
-      // Post to Facebook (would use officialPostToPage here)
-      // For now, just track the result
-      results.push(result);
-      posted++;
+      const pageId = env.FB_PAGE_ID;
+      const pageToken = env.FB_PAGE_ACCESS_TOKEN;
+      if (!pageId || !pageToken) {
+        result.success = false;
+        result.error = 'Facebook Page credentials are not configured';
+        results.push(result);
+        failed++;
+        continue;
+      }
+
+      const siteUrl = env.SITE_URL || 'https://kiamichibizconnect.com';
+      const link = `${siteUrl}/business/${vipBiz.business.slug}?utm_source=facebook&utm_medium=page&utm_campaign=vip_${result.angle}`;
+      const post = await postToPage(pageId, pageToken, {
+        message: result.message,
+        link,
+        imageUrl: result.imageUrl
+      });
+
+      if (post.success && post.post_id) {
+        const contentHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${result.message}:${link}`));
+        const hash = Array.from(new Uint8Array(contentHash)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+        await recordVIPPost(env, vipBiz.business.id, result.angle, hash, post.post_id, result.hadMascot);
+        result.postId = post.post_id;
+        results.push(result);
+        posted++;
+      } else {
+        result.success = false;
+        result.error = post.error || 'Facebook Page post failed';
+        results.push(result);
+        failed++;
+      }
     } else {
       results.push(result);
       failed++;

@@ -15,7 +15,7 @@ export async function populateContentQueue(env: any): Promise<{ created: number;
 
   const businesses = await db
     .prepare(`
-      SELECT id, name, slug, city, state, description, facebook_url
+      SELECT id, name, slug, city, state, description, facebook_url, image_url
       FROM businesses
       WHERE is_active = 1
       ORDER BY RANDOM()
@@ -67,7 +67,7 @@ export async function populateContentQueue(env: any): Promise<{ created: number;
         business.id,
         message,
         link,
-        null,
+        business.image_url || null,
         now,
         'pending',
         5,
