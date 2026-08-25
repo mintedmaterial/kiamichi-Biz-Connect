@@ -412,7 +412,7 @@ export async function createSponsoredAuctionBid(
     return { status: 404, body: { error: 'Auction tier not found' } };
   }
 
-  const business = await db.getBusinessById(input.businessId);
+  const business = await db.getBusinessByIdIncludingInactive(input.businessId);
   if (!business) {
     return { status: 404, body: { error: 'Business not found' } };
   }

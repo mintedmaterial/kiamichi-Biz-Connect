@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@phosphor-icons/react": path.resolve(__dirname, "./src/lib/phosphor-shim.tsx"),
     },
   },
 });

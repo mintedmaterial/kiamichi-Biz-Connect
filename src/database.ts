@@ -135,6 +135,14 @@ export class DatabaseService {
     return result ? this.enrichBusinessWithFacebookImage(result) : null;
   }
 
+  async getBusinessByIdIncludingInactive(id: number): Promise<Business | null> {
+    const result = await this.db
+      .prepare('SELECT * FROM businesses WHERE id = ?')
+      .bind(id)
+      .first<Business>();
+    return result ? this.enrichBusinessWithFacebookImage(result) : null;
+  }
+
   async getBusinessesByCategory(categorySlug: string, limit: number = 20): Promise<Business[]> {
     try {
       const { results } = await this.db

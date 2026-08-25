@@ -3,7 +3,8 @@
     // Tailwind configuration
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@phosphor-icons/react": ["./src/lib/phosphor-shim.tsx"]
     },
 
     /* Visit https://aka.ms/tsconfig to read more about this file */
