@@ -1,6 +1,6 @@
 import { Env, Business } from './types';
 import { DatabaseService } from './database';
-import { aboutPageContent, advertisePageContent, htmlTemplate, homepageContent, pricingPageContent } from './templates';
+import { aboutPageContent, advertisePageContent, htmlTemplate, homepageContent, pricingHubPageContent, pricingPageContent } from './templates';
 import { handleAdminPage } from './admin';
 import {
   getFacebookLoginUrl,
@@ -320,6 +320,12 @@ Disallow: /auth/*`, {
 
       // Advertising page
       if (path === '/advertise') {
+        if (!(await isAuctionAdsEnabled(env))) {
+          return new Response(htmlTemplate('Advertising Unavailable', pricingHubPageContent(), env), {
+            headers: { 'Content-Type': 'text/html' },
+            status: 503
+          });
+        }
         let localAuction = null;
         let regionalAuction = null;
         try {
@@ -334,8 +340,14 @@ Disallow: /auth/*`, {
         return new Response(htmlTemplate('Advertise', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
-      // Pricing page
-      if (path === '/pricing') {
+      // Auction advertising pricing page
+      if (path === '/advertise/pricing') {
+        if (!(await isAuctionAdsEnabled(env))) {
+          return new Response(htmlTemplate('Pricing', pricingHubPageContent(), env), {
+            headers: { 'Content-Type': 'text/html' },
+            status: 503
+          });
+        }
         let localAuction = null;
         let regionalAuction = null;
         try {
@@ -347,6 +359,12 @@ Disallow: /auth/*`, {
           console.warn('Auction pricing unavailable; using fallback preview values', error);
         }
         const content = pricingPageContent({ localAuction, regionalAuction });
+        return new Response(htmlTemplate('Auction Ad Pricing', content, env), { headers: { 'Content-Type': 'text/html' } });
+      }
+
+      // Pricing page
+      if (path === '/pricing') {
+        const content = pricingHubPageContent();
         return new Response(htmlTemplate('Pricing', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
@@ -2223,8 +2241,21 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
   return new Response(html, { headers: { 'Content-Type': 'text/html' } });
 }
 
+async function isAuctionAdsEnabled(env: Env): Promise<boolean> {
+  try {
+    return await env.FLAGS.getBooleanValue('enable-auction-ads', true);
+  } catch (error) {
+    console.warn('Flagship evaluation failed for enable-auction-ads; defaulting to enabled', error);
+    return true;
+  }
+}
+
 // API handler (for future AJAX endpoints)
 async function handleAPI(path: string, request: Request, db: DatabaseService, env: Env): Promise<Response> {
+  if ((path.startsWith('/api/auctions/') || path === '/api/webhooks/square') && !(await isAuctionAdsEnabled(env))) {
+    return Response.json({ error: 'Auction ads are temporarily unavailable' }, { status: 503 });
+  }
+
   // Public read-only auction status. Bid activation remains disabled until
   // Square payment verification is wired through the server-side webhook.
   const auctionMatch = path.match(/^\/api\/auctions\/([a-z0-9-]+)\/status$/);

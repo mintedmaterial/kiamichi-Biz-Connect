@@ -375,7 +375,7 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
                     <h4 class="font-bold mb-4 sonic-gold">For Businesses</h4>
                     <ul class="space-y-2">
                         <li><a href="/submit" class="text-gray-400 hover:text-[#FFCB67] transition-colors">List Your Business</a></li>
-                        <li><a href="/advertise" class="text-gray-400 hover:text-[#FFCB67] transition-colors">Advertise</a></li>
+                        <li><a href="/advertise#auction-bids" class="text-gray-400 hover:text-[#FFCB67] transition-colors">Advertise</a></li>
                         <li><a href="/pricing" class="text-gray-400 hover:text-[#FFCB67] transition-colors">Pricing</a></li>
                     </ul>
                 </div>
@@ -481,8 +481,8 @@ export const homepageContent = (data: any) => `
                     <p class="text-gray-300 max-w-3xl">When no business is winning a live slot, we show the inventory here and point advertisers to the current floors, rules, and next steps.</p>
                 </div>
                 <div class="flex flex-col gap-3 min-w-[240px]">
-                    <a href="/advertise" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold text-center">Advertise</a>
-                    <a href="/pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold text-center hover:bg-[#ED5409]/10 transition-colors">See pricing</a>
+                    <a href="/advertise#auction-bids" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold text-center">Advertise</a>
+                    <a href="/advertise/pricing#auction-pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold text-center hover:bg-[#ED5409]/10 transition-colors">See auction pricing</a>
                 </div>
             </div>
         </div>
@@ -574,7 +574,7 @@ export const homepageContent = (data: any) => `
                 <a href="/submit" class="btn-glow text-white px-8 py-4 rounded-lg font-semibold text-lg inline-block">
                     List Your Business Today
                 </a>
-                <a href="/advertise" class="border border-white/40 text-white px-8 py-4 rounded-lg font-semibold text-lg inline-block hover:bg-white/10 transition-colors">
+                <a href="/advertise#auction-bids" class="border border-white/40 text-white px-8 py-4 rounded-lg font-semibold text-lg inline-block hover:bg-white/10 transition-colors">
                     Advertise with the auction
                 </a>
             </div>
@@ -668,10 +668,16 @@ const auctionTierCard = (title: string, fallback: { placementType: string; floor
                             });
                             const result = await response.json();
                             if (!response.ok) throw new Error(result.error || result.reason || 'Bid was not accepted');
-                            message.innerHTML = result.checkoutUrl
-                                ? 'Bid submitted. Complete the Square checkout only if you want to hold the winning slot: <a class="text-[#FFCB67] underline" href="' + result.checkoutUrl + '" target="_blank" rel="noopener">Continue to Square</a>'
-                                : 'Bid submitted and waiting for Square checkout configuration.';
+                            if (result.checkoutUrl) {
+                                message.innerHTML = 'Bid submitted. Redirecting to Square checkout now. If nothing happens, <a class="text-[#FFCB67] underline" href="' + result.checkoutUrl + '" target="_blank" rel="noopener">continue to Square</a>.';
+                                if (button) { button.textContent = 'Redirecting to Square...'; }
+                                if (avatar) avatar.src = '${BIGFOOT_POSES.celebrate}';
+                                window.location.assign(result.checkoutUrl);
+                                return;
+                            }
+                            message.textContent = 'Bid submitted and waiting for Square checkout configuration.';
                             if (avatar) avatar.src = '${BIGFOOT_POSES.celebrate}';
+                            if (button) { button.disabled = false; button.textContent = 'Place bid'; }
                         } catch (error) {
                             message.textContent = error instanceof Error ? error.message : 'Bid submission failed. Please try again.';
                             if (avatar) avatar.src = '${BIGFOOT_POSES.thinking}';
@@ -693,7 +699,7 @@ export const aboutPageContent = (data: any) => `
                 <p class="text-xl opacity-90 max-w-3xl">KiamichiBizConnect is the local directory for Southeast Oklahoma, Northeast Texas, and Southwest Arkansas — built to make discovery easy, sponsorships clear, and business pages useful.</p>
                 <div class="flex flex-col md:flex-row gap-4 mt-8">
                     <a href="/submit" class="btn-glow text-white px-7 py-3 rounded-lg font-semibold text-lg inline-block text-center">List your business</a>
-                    <a href="/advertise" class="border border-white/40 text-white px-7 py-3 rounded-lg font-semibold text-lg inline-block text-center hover:bg-white/10 transition-colors">See advertising</a>
+                    <a href="/advertise#auction-bids" class="border border-white/40 text-white px-7 py-3 rounded-lg font-semibold text-lg inline-block text-center hover:bg-white/10 transition-colors">See advertising</a>
                 </div>
             </div>
         </div>
@@ -728,7 +734,7 @@ export const aboutPageContent = (data: any) => `
 `;
 
 export const advertisePageContent = (data: any) => `
-    <section class="gradient-bg text-white py-20">
+    <section id="advertise-top" class="gradient-bg text-white py-20 scroll-mt-24">
         <div class="container mx-auto px-4">
             <div class="max-w-4xl">
                 <p class="text-xs uppercase tracking-widest opacity-80 mb-4">Advertise</p>
@@ -738,7 +744,7 @@ export const advertisePageContent = (data: any) => `
         </div>
     </section>
 
-    <section class="container mx-auto px-4 py-16">
+    <section id="auction-bids" class="container mx-auto px-4 py-16 scroll-mt-24">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             ${auctionTierCard('Local Spotlight', { placementType: 'homepage-featured', floorCents: 500, summary: 'Best for businesses that want a visible homepage sponsor slot in the local market.' }, data.localAuction)}
             ${auctionTierCard('Regional Spotlight', { placementType: 'sidebar', floorCents: 2500, summary: 'Broader reach for brands that want to show up in a premium sponsored placement.' }, data.regionalAuction)}
@@ -758,7 +764,7 @@ export const advertisePageContent = (data: any) => `
                     <p class="text-gray-300 mt-2">We can help you choose the right tier and explain the auction timing before you place a bid.</p>
                 </div>
                 <div class="flex gap-3 flex-wrap">
-                    <a href="/pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold hover:bg-[#ED5409]/10 transition-colors">View pricing</a>
+                    <a href="/advertise/pricing#auction-pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold hover:bg-[#ED5409]/10 transition-colors">View auction pricing</a>
                     <a href="/submit" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold">List your business</a>
                 </div>
             </div>
@@ -766,11 +772,45 @@ export const advertisePageContent = (data: any) => `
     </section>
 `;
 
-export const pricingPageContent = (data: any) => `
+export const pricingHubPageContent = () => `
     <section class="gradient-bg text-white py-20">
         <div class="container mx-auto px-4">
             <div class="max-w-4xl">
                 <p class="text-xs uppercase tracking-widest opacity-80 mb-4">Pricing</p>
+                <h1 class="text-5xl font-bold mb-6">Pricing is split by offering.</h1>
+                <p class="text-xl opacity-90 max-w-3xl">Auction advertising has its own pricing page. Tooling, services, and future platform packages will live on separate pricing pages.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="container mx-auto px-4 py-16">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="glow-card p-8 border border-[#ED5409]/40">
+                <p class="text-xs uppercase tracking-widest text-secondary mb-3">Advertising</p>
+                <h2 class="text-3xl font-bold text-primary mb-4">Auction ad pricing</h2>
+                <p class="text-gray-300 mb-6">See the live auction floors, bid rules, and current placement pricing for sponsored visibility on the directory.</p>
+                <div class="flex flex-wrap gap-3">
+                    <a href="/advertise/pricing#auction-pricing" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold">See auction pricing</a>
+                    <a href="/advertise#auction-bids" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold hover:bg-[#ED5409]/10 transition-colors">Go to auction bids</a>
+                </div>
+            </div>
+            <div class="glow-card p-8">
+                <p class="text-xs uppercase tracking-widest text-secondary mb-3">Tools</p>
+                <h2 class="text-3xl font-bold text-primary mb-4">Tools & platform pricing</h2>
+                <p class="text-gray-300 mb-6">This will be a separate pricing page for business tools, AI help, premium services, and future product plans.</p>
+                <div class="rounded-2xl border border-white/10 bg-black/20 p-5 text-gray-300">
+                    Coming soon. For now, contact <a href="mailto:admin@kiamichibizconnect.com" class="text-[#FFCB67] underline">admin@kiamichibizconnect.com</a> for custom tooling or service pricing.
+                </div>
+            </div>
+        </div>
+    </section>
+`;
+
+export const pricingPageContent = (data: any) => `
+    <section id="auction-pricing" class="gradient-bg text-white py-20 scroll-mt-24">
+        <div class="container mx-auto px-4">
+            <div class="max-w-4xl">
+                <p class="text-xs uppercase tracking-widest opacity-80 mb-4">Auction ad pricing</p>
                 <h1 class="text-5xl font-bold mb-6">Current auction floors and placement pricing.</h1>
                 <p class="text-xl opacity-90 max-w-3xl">Prices are auction floors, not fixed subscriptions. The live bid determines who wins the slot, and the page below shows the current minimums.</p>
             </div>
@@ -805,7 +845,7 @@ export const pricingPageContent = (data: any) => `
                     <div class="space-y-4">
                         <div class="flex items-center justify-between"><span class="text-gray-300">Local Spotlight</span><span class="font-bold text-[#FFCB67]">${data.localAuction ? formatMoney(data.localAuction.currentBidCents) : '$5.00'}</span></div>
                         <div class="flex items-center justify-between"><span class="text-gray-300">Regional Spotlight</span><span class="font-bold text-[#FFCB67]">${data.regionalAuction ? formatMoney(data.regionalAuction.currentBidCents) : '$25.00'}</span></div>
-                        <div class="pt-3 border-t border-white/10 text-sm text-gray-400">Use the advertise page to see the live auction status and next steps.</div>
+                        <div class="pt-3 border-t border-white/10 text-sm text-gray-400">Use the <a href="/advertise#auction-bids" class="text-[#FFCB67] underline">advertise page</a> to place a live bid and continue to Square checkout.</div>
                     </div>
                 </div>
             </div>
