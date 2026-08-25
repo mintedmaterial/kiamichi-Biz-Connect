@@ -48,6 +48,19 @@ export default {
 
     // Router
     try {
+      if (path === '/health') {
+        return Response.json({
+          status: 'healthy',
+          worker: 'kiamichi-biz-connect',
+          timestamp: Date.now(),
+          auctionAds: await getAuctionAdsFlagState(env)
+        });
+      }
+
+      if (path === '/api/flags/auction-ads') {
+        return Response.json(await getAuctionAdsFlagState(env));
+      }
+
       // Robots.txt for search engine crawlers
       if (path === '/robots.txt') {
         return new Response(`# Robots.txt for KiamichiBizConnect
@@ -2247,6 +2260,35 @@ async function isAuctionAdsEnabled(env: Env): Promise<boolean> {
   } catch (error) {
     console.warn('Flagship evaluation failed for enable-auction-ads; defaulting to enabled', error);
     return true;
+  }
+}
+
+async function getAuctionAdsFlagState(env: Env): Promise<Record<string, unknown>> {
+  try {
+    const details = await (env.FLAGS as any).getBooleanDetails?.('enable-auction-ads', true);
+    if (details) {
+      return {
+        key: 'enable-auction-ads',
+        value: details.value,
+        variant: details.variant ?? null,
+        reason: details.reason ?? null
+      };
+    }
+
+    return {
+      key: 'enable-auction-ads',
+      value: await env.FLAGS.getBooleanValue('enable-auction-ads', true),
+      variant: null,
+      reason: 'VALUE_ONLY'
+    };
+  } catch (error) {
+    return {
+      key: 'enable-auction-ads',
+      value: true,
+      variant: null,
+      reason: 'FALLBACK_ENABLED',
+      error: error instanceof Error ? error.message : String(error)
+    };
   }
 }
 

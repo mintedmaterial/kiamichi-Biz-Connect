@@ -26,6 +26,16 @@ export default {
     const path = url.pathname;
 
     try {
+      if (path === '/health') {
+        return new Response(JSON.stringify({
+          status: 'healthy',
+          worker: 'kiamichi-facebook-worker',
+          timestamp: Date.now()
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
       // DEBUG: Manually trigger Facebook login via BrowserSession
       if (path === '/browser-login') {
         try {
