@@ -108,9 +108,12 @@ export async function handlePublish(
   }
 
   try {
+    const body = await request.json<{ createSnapshot?: boolean; businessId?: number | null }>();
+    const requestedBusinessId = typeof body.businessId === "number" ? body.businessId : null;
     const businessContext = await getBusinessContextFromSession(
       request,
-      env.DB
+      env.DB,
+      requestedBusinessId
     );
 
     if (!businessContext) {
@@ -123,8 +126,6 @@ export async function handlePublish(
       );
     }
 
-    // Parse request body
-    const body = await request.json<{ createSnapshot?: boolean }>();
     const createSnapshot = body.createSnapshot !== false; // Default to true
 
     // Get listing page
@@ -254,13 +255,22 @@ export async function handleUserInfo(
     const sessionData = await env.DB.prepare(
       `SELECT user_name, user_picture FROM admin_sessions WHERE id = ?`
     ).bind(sessionId).first();
+    const sessionKeyBuffer = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(sessionId)
+    );
+    const sessionKey = Array.from(new Uint8Array(sessionKeyBuffer))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 24);
 
     return Response.json({
       email: sessionInfo.ownerId,
       name: sessionData?.user_name || null,
       picture: sessionData?.user_picture || null,
       isAdmin: adminStatus.isAdmin,
-      role: adminStatus.role
+      role: adminStatus.role,
+      sessionKey
     });
   } catch (error) {
     console.error("[API] Error getting user info:", error);

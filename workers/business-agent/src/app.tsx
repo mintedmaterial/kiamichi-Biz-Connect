@@ -4,6 +4,7 @@ import { useAgent } from "agents/react";
 import { isStaticToolUIPart } from "ai";
 import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 // Component imports
 import { Button } from "@/components/button/Button";
@@ -47,8 +48,8 @@ export default function Chat() {
   const [textareaHeight, setTextareaHeight] = useState("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Preview pane state
-  const [businessId, setBusinessId] = useState<number | null>(null);
+  // Preview pane state follows the shared business selector.
+  const { selectedBusinessId } = useBusiness();
   const [previewKey, setPreviewKey] = useState(0);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -87,24 +88,6 @@ export default function Chat() {
     scrollToBottom();
   }, [scrollToBottom]);
 
-  // Load business information on mount
-  useEffect(() => {
-    async function loadBusiness() {
-      try {
-        const response = await fetch("/api/my-business");
-        if (response.ok) {
-          const data = (await response.json()) as { businessId: number; name: string };
-          setBusinessId(data.businessId);
-          console.log("[App] Loaded business:", data.name, "ID:", data.businessId);
-        } else {
-          console.warn("[App] No business found for this session");
-        }
-      } catch (error) {
-        console.error("[App] Error loading business:", error);
-      }
-    }
-    loadBusiness();
-  }, []);
 
   const toggleTheme = () => {
     const newTheme = theme === "dark" ? "light" : "dark";
@@ -173,7 +156,7 @@ export default function Chat() {
   // Initialize agent with default room name
   const agent = useAgent({
     agent: "chat",
-    name: "default"
+    name: selectedBusinessId ? `business-${selectedBusinessId}` : "all"
   });
 
   const [agentInput, setAgentInput] = useState("");
@@ -253,7 +236,7 @@ export default function Chat() {
         part.state === "input-available" &&
         // Manual check inside the component
         toolsRequiringConfirmation.includes(
-          part.toolName as (typeof toolsRequiringConfirmation)[number]
+          part.type.replace("tool-", "") as (typeof toolsRequiringConfirmation)[number]
         )
     )
   );
@@ -536,7 +519,6 @@ export default function Chat() {
               toggled={showDebug}
               aria-label="Toggle debug mode"
               onClick={() => setShowDebug((prev) => !prev)}
-              className="hidden md:block"
             />
             
             {/* Atlas Live View toggle */}
@@ -545,7 +527,6 @@ export default function Chat() {
               toggled={showAtlasLive}
               aria-label="Toggle Atlas Live View"
               onClick={() => setShowAtlasLive((prev) => !prev)}
-              className="hidden md:block"
             />
           </div>
 
@@ -554,7 +535,6 @@ export default function Chat() {
             className="hidden md:block"
             size="md"
             shape="square"
-            className="rounded-full h-9 w-9"
             onClick={toggleTheme}
           >
             {theme === "dark" ? <SunIcon size={20} /> : <MoonIcon size={20} />}
@@ -844,7 +824,7 @@ export default function Chat() {
         {/* Right pane: Preview */}
         <div className={`${showMobilePreview ? 'flex' : 'hidden'} lg:flex w-full lg:w-1/2 bg-neutral-50 dark:bg-neutral-950`}>
           <PreviewPane
-            businessId={businessId}
+            businessId={selectedBusinessId}
             previewKey={previewKey}
             onPublish={handlePublishClick}
             onRefresh={handleRefreshPreview}

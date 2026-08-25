@@ -43,6 +43,11 @@ id = "a5a33e270e4548548d43cf0554323e57"
 [ai]
 binding = "AI"
 
+# Flagship for feature flags (feature flag service)
+[[flagship]]
+binding = "FLAGS"
+app_id = "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+
 # Service bindings to other workers
 [[services]]
 binding = "ANALYZER"
@@ -53,8 +58,12 @@ service = "kiamichi-biz-ai-analyzer"
 ENVIRONMENT = "production"
 SITE_NAME = "KiamichiBizConnect"
 SITE_URL = "https://kiamichibizconnect.com"
+BUSINESS_IMAGES_PUBLIC_URL = "https://pub-6fcc00afe89845d2a131c52047729c33.r2.dev"
 DEFAULT_SERVICE_AREA = "Southeast Oklahoma, Northeast Texas, Southwest Arkansas"
 ADMIN_EMAIL = "admin@kiamichibizconnect.com"
+SQUARE_ENVIRONMENT = "sandbox"
+SQUARE_LOCATION_ID = "LW8XR3X959K7Y"
+SQUARE_WEBHOOK_URL = "https://kiamichibizconnect.com/api/webhooks/square"
 # ADMIN_KEY should be set using: wrangler secret put ADMIN_KEY
 GOOGLE_CLIENT_ID = "434934291611-9uo1jsbg07dnd711l4vb47kbrm2okoc0.apps.googleusercontent.com"
 FACEBOOK_APP_ID = "879824491249046"

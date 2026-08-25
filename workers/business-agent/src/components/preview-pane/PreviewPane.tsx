@@ -2,7 +2,7 @@
  * PreviewPane Component
  * Displays an iframe preview of the business listing with refresh and publish controls
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/button/Button";
 import { Card } from "@/components/card/Card";
 import {
@@ -13,6 +13,7 @@ import {
 
 export interface PreviewPaneProps {
   businessId: number | null;
+  liveUrl?: string;
   previewKey: number;
   onPublish: () => void;
   onRefresh: () => void;
@@ -21,6 +22,7 @@ export interface PreviewPaneProps {
 
 export function PreviewPane({
   businessId,
+  liveUrl,
   previewKey,
   onPublish,
   onRefresh,
@@ -28,6 +30,26 @@ export function PreviewPane({
 }: PreviewPaneProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [resolvedLiveUrl, setResolvedLiveUrl] = useState<string | undefined>(liveUrl);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setHasError(false);
+    setResolvedLiveUrl(liveUrl);
+    if (liveUrl || !businessId) return () => { cancelled = true; };
+
+    fetch(`/api/business/${businessId}`)
+      .then(async (response) => response.ok ? await response.json() as { liveUrl?: string } : null)
+      .then((data) => {
+        if (!cancelled && data?.liveUrl) setResolvedLiveUrl(data.liveUrl);
+      })
+      .catch(() => {
+        // Keep the empty state rather than silently switching back to a draft URL.
+      });
+
+    return () => { cancelled = true; };
+  }, [businessId, liveUrl]);
 
   const handleIframeLoad = useCallback(() => {
     setIsLoading(false);
@@ -80,7 +102,9 @@ export function PreviewPane({
     );
   }
 
-  const previewUrl = `/preview/${businessId}?t=${previewKey}`;
+  const previewUrl = resolvedLiveUrl
+    ? `${resolvedLiveUrl}${resolvedLiveUrl.includes("?") ? "&" : "?"}agentPreview=${previewKey}`
+    : null;
 
   return (
     <div className="h-full flex flex-col">
@@ -94,7 +118,7 @@ export function PreviewPane({
             />
             <h3 className="font-semibold text-base">Preview</h3>
             <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-              DRAFT
+              {resolvedLiveUrl ? "LIVE LISTING" : "LOADING LISTING"}
             </span>
           </div>
 
@@ -168,15 +192,17 @@ export function PreviewPane({
           </div>
         )}
 
-        <iframe
-          key={previewKey}
-          src={previewUrl}
-          className="w-full h-full border-0"
-          title="Business Listing Preview"
-          onLoad={handleIframeLoad}
-          onError={handleIframeError}
-          sandbox="allow-same-origin allow-scripts allow-forms"
-        />
+        {previewUrl && (
+          <iframe
+            key={`${previewUrl}-${previewKey}`}
+            src={previewUrl}
+            className="w-full h-full border-0"
+            title="Existing Business Listing"
+            onLoad={handleIframeLoad}
+            onError={handleIframeError}
+            sandbox="allow-same-origin allow-scripts allow-forms"
+          />
+        )}
       </div>
     </div>
   );

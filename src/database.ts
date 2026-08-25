@@ -15,18 +15,34 @@ export class DatabaseService {
 
   // Categories
   async getAllCategories(): Promise<Category[]> {
-    const { results } = await this.db
-      .prepare('SELECT * FROM categories ORDER BY display_order, name')
-      .all<Category>();
-    return results || [];
+    try {
+      const { results } = await this.db
+        .prepare('SELECT * FROM categories ORDER BY display_order, name')
+        .all<Category>();
+      return results || [];
+    } catch (error: any) {
+      if (String(error?.message || error).includes('no such table: categories')) {
+        console.warn('Categories table missing; returning empty category list for local preview');
+        return [];
+      }
+      throw error;
+    }
   }
 
   async getCategoryBySlug(slug: string): Promise<Category | null> {
-    const result = await this.db
-      .prepare('SELECT * FROM categories WHERE slug = ?')
-      .bind(slug)
-      .first<Category>();
-    return result;
+    try {
+      const result = await this.db
+        .prepare('SELECT * FROM categories WHERE slug = ?')
+        .bind(slug)
+        .first<Category>();
+      return result;
+    } catch (error: any) {
+      if (String(error?.message || error).includes('no such table: categories')) {
+        console.warn('Categories table missing; returning null for local preview');
+        return null;
+      }
+      throw error;
+    }
   }
 
   // Businesses
@@ -56,10 +72,19 @@ export class DatabaseService {
 
     // Get total count
     const countSql = sql.replace('SELECT b.*', 'SELECT COUNT(*) as total');
-    const countResult = await this.db
-      .prepare(countSql)
-      .bind(...bindings)
-      .first<{ total: number }>();
+    let countResult: { total: number } | undefined;
+    try {
+      countResult = await this.db
+        .prepare(countSql)
+        .bind(...bindings)
+        .first<{ total: number }>();
+    } catch (error: any) {
+      if (String(error?.message || error).includes('no such table: businesses')) {
+        console.warn('Businesses table missing; returning empty search results for local preview');
+        return { data: [], total: 0, limit, offset, hasMore: false };
+      }
+      throw error;
+    }
     
     const total = countResult?.total || 0;
 
@@ -102,18 +127,34 @@ export class DatabaseService {
     return result ? this.enrichBusinessWithFacebookImage(result) : null;
   }
 
+  async getBusinessById(id: number): Promise<Business | null> {
+    const result = await this.db
+      .prepare('SELECT * FROM businesses WHERE id = ? AND is_active = 1')
+      .bind(id)
+      .first<Business>();
+    return result ? this.enrichBusinessWithFacebookImage(result) : null;
+  }
+
   async getBusinessesByCategory(categorySlug: string, limit: number = 20): Promise<Business[]> {
-    const { results } = await this.db
-      .prepare(`
-        SELECT b.* FROM businesses b
-        INNER JOIN categories c ON b.category_id = c.id
-        WHERE c.slug = ? AND b.is_active = 1
-        ORDER BY b.is_featured DESC, b.google_rating DESC
-        LIMIT ?
-      `)
-      .bind(categorySlug, limit)
-      .all<Business>();
-    return (results || []).map(b => this.enrichBusinessWithFacebookImage(b));
+    try {
+      const { results } = await this.db
+        .prepare(`
+          SELECT b.* FROM businesses b
+          INNER JOIN categories c ON b.category_id = c.id
+          WHERE c.slug = ? AND b.is_active = 1
+          ORDER BY b.is_featured DESC, b.google_rating DESC
+          LIMIT ?
+        `)
+        .bind(categorySlug, limit)
+        .all<Business>();
+      return (results || []).map(b => this.enrichBusinessWithFacebookImage(b));
+    } catch (error: any) {
+      if (String(error?.message || error).includes('no such table: businesses') || String(error?.message || error).includes('no such table: categories')) {
+        console.warn('Business/category tables missing; returning empty category results for local preview');
+        return [];
+      }
+      throw error;
+    }
   }
 
   // Ad Placements

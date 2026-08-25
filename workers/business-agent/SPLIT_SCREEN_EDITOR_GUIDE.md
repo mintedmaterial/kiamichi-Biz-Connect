@@ -18,7 +18,7 @@ app.tsx (Main Interface)
 ├── Right Pane: Preview (50% width on desktop)
 │   ├── PreviewPane Component
 │   │   ├── Preview Header with Toolbar
-│   │   ├── Iframe (showing /preview/{businessId})
+│   │   ├── Iframe (showing the selected business live listing URL)
 │   │   └── Refresh & Publish Buttons
 │   └── [Hidden on mobile, shows only chat]
 │
@@ -84,11 +84,14 @@ The preview pane displays the business listing in draft mode with:
 **Preview URL:**
 
 ```
-/preview/{businessId}?t={previewKey}
+/preview/{selectedBusinessId}?t={previewKey}
 ```
 
-- `businessId`: Current authenticated user's business
-- `previewKey`: Incrementing number to force iframe reload
+- `selectedBusinessId`: Business selected in the admin selector, or the owner's verified business for non-admin users
+- `liveUrl`: Existing listing URL returned by `/api/business/:id`
+- `previewKey`: Cache-busting value appended to the live listing URL
+
+The preview pane intentionally shows the existing public listing. It does not silently replace it with the draft assembler. Draft rendering remains available at `/preview/{selectedBusinessId}` for explicit draft-preview workflows.
 
 ### 3. Auto-Refresh System
 
@@ -155,14 +158,16 @@ useEffect(() => {
 
 ```
 Browser Request
-  ↓ (Cookie: portal_session=...)
+  ↓ (Cookie: admin_session=...)
 Chat DO fetch()
   ↓
-getBusinessContextFromSession(request, DB)
+getBusinessContextFromSession(request, DB, requestedBusinessId)
   ↓
 ├─ parseSessionCookie() → sessionId
 ├─ verifySession() → ownerId
-└─ getOwnerBusinesses() → businessId
+├─ site_admins check
+├─ admin: selected business ID → any active business
+└─ owner: getOwnerBusinesses() → verified owned business
   ↓
 Store in this.metadata.businessContext
   ↓
@@ -171,9 +176,9 @@ Tools access via getCurrentAgent()
 
 **Security:**
 
-- All requests verify `portal_session` cookie
+- All agent requests verify the `admin_session` cookie
 - Session validation checks expiry
-- Business ownership verified (`claim_status = 'verified'`)
+- Admins may select any active business; non-admins require `claim_status = 'verified'`
 - Preview route checks ownership before rendering
 
 ## API Endpoints
@@ -199,8 +204,9 @@ Returns authenticated user's business information.
 
 **Used By:**
 
-- Frontend on mount to load `businessId`
-- Preview pane to construct iframe URL
+- Frontend uses `/api/user-info` to determine admin status
+- Admin frontend loads the full directory from `/api/businesses`
+- Owner frontend loads the verified business from `/api/my-business`
 
 ### POST /api/publish
 
@@ -242,12 +248,15 @@ Publishes draft changes to live listing.
 ### Initial Load
 
 1. User navigates to business-agent worker
-2. Auth middleware checks `portal_session` cookie
+2. Main KBC auth establishes the `admin_session` cookie across `*.kiamichibizconnect.com`
 3. If authenticated, loads React app
-4. `app.tsx` calls `GET /api/my-business`
-5. Sets `businessId` state
-6. Preview pane loads `/preview/{businessId}`
-7. Chat DO initializes with business context in metadata
+4. `BusinessContext` calls `/api/user-info`
+5. Admins call `GET /api/businesses`; owners call `GET /api/my-business`
+6. The selector stores `selectedBusinessId` and loads `/api/business/{id}` for admins
+7. Preview pane loads `/preview/{selectedBusinessId}`
+8. Chat creates a session-scoped agent name: `/agents/chat/business-{selectedBusinessId}-{chatSessionKey}`
+9. Chat DO resolves the selected ID and injects that business into metadata and tools
+10. `sessionKey` is a one-way fingerprint of the authenticated login session; New chat adds a browser-session nonce without deleting prior Durable Object history
 
 ### Editing Workflow
 

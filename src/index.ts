@@ -1,6 +1,6 @@
-import { Env } from './types';
+import { Env, Business } from './types';
 import { DatabaseService } from './database';
-import { htmlTemplate, homepageContent } from './templates';
+import { aboutPageContent, advertisePageContent, htmlTemplate, homepageContent, pricingPageContent } from './templates';
 import { handleAdminPage } from './admin';
 import {
   getFacebookLoginUrl,
@@ -25,6 +25,8 @@ import {
 } from './auth/github';
 import { requireAdminAuth } from './auth/middleware';
 import { runAutomatedDailyBlog } from './workers/blogWorker';
+import { getAuctionStatus } from './auction-service';
+import { createSponsoredAuctionBid, handleSquareWebhook } from './square-auctions';
 
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -138,7 +140,7 @@ Disallow: /auth/*`, {
       // Category page
       if (path.startsWith('/category/')) {
         const slug = path.split('/')[2];
-        return await handleCategoryPage(slug, db, env);
+        return await handleCategoryPage(request, slug, db, env);
       }
 
       // Business detail page
@@ -245,34 +247,15 @@ Disallow: /auth/*`, {
         return await handleBlog(db, env);
       }
 
-      // Serve logo from the committed avatar asset, with R2 fallback
+      // Serve logo from R2
       if (path === '/logo.png') {
-        const avatarUrl = 'https://raw.githubusercontent.com/mintedmaterial/kiamichi-Biz-Connect/facebook-automation-fix/assets/brand/avatar/kbc-bigfoot-reference.jpg';
-
-        try {
-          const avatarResponse = await fetch(avatarUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-          });
-
-          if (avatarResponse.ok) {
-            return new Response(avatarResponse.body, {
-              headers: {
-                'Content-Type': avatarResponse.headers.get('content-type') || 'image/jpeg',
-                'Cache-Control': 'public, max-age=31536000'
-              }
-            });
-          }
-        } catch (error) {
-          console.warn('Avatar logo fetch failed, using fallback logo.png', error);
-        }
-
         const object = await env.IMAGES.get('logo.png');
         if (!object) {
           return new Response('Logo not found', { status: 404 });
         }
         return new Response(object.body, {
           headers: {
-            'Content-Type': object.httpMetadata?.contentType || 'image/png',
+            'Content-Type': 'image/png',
             'Cache-Control': 'public, max-age=31536000'
           }
         });
@@ -325,123 +308,45 @@ Disallow: /auth/*`, {
 
       // About page
       if (path === '/about') {
-        const content = `
-          <div class="container mx-auto px-4 py-12 max-w-4xl">
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10">
-              <p class="text-sm font-semibold uppercase tracking-[0.2em] text-[#ED5409] mb-4">About Kiamichi Biz Connect</p>
-              <h1 class="text-4xl md:text-5xl font-bold mb-6">Local business discovery for Southeast Oklahoma and nearby communities</h1>
-              <p class="text-lg text-gray-700 mb-6">Kiamichi Biz Connect helps people find trusted local businesses, read helpful details, and discover sponsored placements that keep local advertisers visible on the site and in social posts.</p>
-              <div class="grid md:grid-cols-2 gap-6 mb-8">
-                <div class="bg-gray-50 rounded-xl p-6">
-                  <h2 class="text-xl font-bold mb-3">What we do</h2>
-                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
-                    <li>Showcase local businesses and service providers</li>
-                    <li>Surface categories, blog content, and sponsored placements</li>
-                    <li>Give business owners tools to manage their listings</li>
-                  </ul>
-                </div>
-                <div class="bg-gray-50 rounded-xl p-6">
-                  <h2 class="text-xl font-bold mb-3">Who it's for</h2>
-                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
-                    <li>Customers looking for local options</li>
-                    <li>Businesses wanting more visibility</li>
-                    <li>Advertisers who want simple, local-first placement</li>
-                  </ul>
-                </div>
-              </div>
-              <a href="/advertise" class="inline-flex items-center px-5 py-3 rounded-lg bg-[#ED5409] text-white font-semibold hover:opacity-90">See advertising options</a>
-            </div>
-          </div>
-        `;
-        return new Response(htmlTemplate('About Kiamichi Biz Connect', content, env), { headers: { 'Content-Type': 'text/html' } });
+        let stats = { businesses: 0, categories: 0, cities: 3 };
+        try {
+          stats = await db.getStats();
+        } catch (error) {
+          console.warn('About stats unavailable; using fallback preview values', error);
+        }
+        const content = aboutPageContent({ stats });
+        return new Response(htmlTemplate('About Us', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
-      // Advertise page
+      // Advertising page
       if (path === '/advertise') {
-        const content = `
-          <div class="container mx-auto px-4 py-12 max-w-5xl">
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10">
-              <p class="text-sm font-semibold uppercase tracking-[0.2em] text-[#ED5409] mb-4">Advertise with Kiamichi Biz Connect</p>
-              <h1 class="text-4xl md:text-5xl font-bold mb-6">Sponsored placements for local businesses</h1>
-              <p class="text-lg text-gray-700 mb-8">We keep this simple: verified local businesses can get listed, featured, and promoted through sponsored placements that show up on the site and in social content.</p>
-              <div class="grid lg:grid-cols-3 gap-6 mb-8">
-                <div class="rounded-xl border border-gray-200 p-6">
-                  <h2 class="text-xl font-bold mb-2">One-time update</h2>
-                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$10-$20</p>
-                  <p class="text-gray-700">Best for a single edit to an existing listing or ad detail.</p>
-                </div>
-                <div class="rounded-xl border border-gray-200 p-6">
-                  <h2 class="text-xl font-bold mb-2">Starter access</h2>
-                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$14.99</p>
-                  <p class="text-gray-700">Basic monthly access for businesses that want an entry-level sponsored presence.</p>
-                </div>
-                <div class="rounded-xl border border-gray-200 p-6">
-                  <h2 class="text-xl font-bold mb-2">Monthly edits</h2>
-                  <p class="text-3xl font-bold text-[#ED5409] mb-2">Up to 10</p>
-                  <p class="text-gray-700">For businesses that need a small number of listing or creative changes each month.</p>
-                </div>
-              </div>
-              <div class="grid md:grid-cols-2 gap-6 mb-8">
-                <div class="bg-gray-50 rounded-xl p-6">
-                  <h2 class="text-xl font-bold mb-3">Before we edit business assets</h2>
-                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
-                    <li>The email used for the business must be verified as the business email, or the owner must have explicit access.</li>
-                    <li>We verify the business using Google Business or Facebook Business when applicable.</li>
-                    <li>This keeps sponsored content tied to legitimate local businesses.</li>
-                  </ul>
-                </div>
-                <div class="bg-gray-50 rounded-xl p-6">
-                  <h2 class="text-xl font-bold mb-3">What sponsored placements can include</h2>
-                  <ul class="space-y-2 text-gray-700 list-disc list-inside">
-                    <li>Homepage or category visibility</li>
-                    <li>Social worker promotion</li>
-                    <li>Auction-backed ad spot placement</li>
-                    <li>Fresh creative updates when needed</li>
-                  </ul>
-                </div>
-              </div>
-              <div class="flex flex-wrap gap-3">
-                <a href="/submit" class="inline-flex items-center px-5 py-3 rounded-lg bg-[#ED5409] text-white font-semibold hover:opacity-90">List your business</a>
-                <a href="/pricing" class="inline-flex items-center px-5 py-3 rounded-lg border border-gray-300 font-semibold hover:bg-gray-50">View pricing</a>
-              </div>
-            </div>
-          </div>
-        `;
+        let localAuction = null;
+        let regionalAuction = null;
+        try {
+          [localAuction, regionalAuction] = await Promise.all([
+            getAuctionStatus(env.DB, 'local-spotlight'),
+            getAuctionStatus(env.DB, 'regional-spotlight')
+          ]);
+        } catch (error) {
+          console.warn('Auction status unavailable; using fallback preview values', error);
+        }
+        const content = advertisePageContent({ localAuction, regionalAuction });
         return new Response(htmlTemplate('Advertise', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
       // Pricing page
       if (path === '/pricing') {
-        const content = `
-          <div class="container mx-auto px-4 py-12 max-w-5xl">
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 md:p-10">
-              <p class="text-sm font-semibold uppercase tracking-[0.2em] text-[#ED5409] mb-4">Pricing</p>
-              <h1 class="text-4xl md:text-5xl font-bold mb-6">Simple local advertising options</h1>
-              <p class="text-lg text-gray-700 mb-8">Choose the plan that fits the amount of editing, promotion, and placement support you need.</p>
-              <div class="grid lg:grid-cols-3 gap-6">
-                <div class="rounded-xl border border-gray-200 p-6">
-                  <h2 class="text-xl font-bold mb-2">One-time listing update</h2>
-                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$10-$20</p>
-                  <p class="text-gray-700">For a single content refresh or asset change on an existing business listing.</p>
-                </div>
-                <div class="rounded-xl border-2 border-[#ED5409] p-6 shadow-sm">
-                  <h2 class="text-xl font-bold mb-2">Starter access</h2>
-                  <p class="text-3xl font-bold text-[#ED5409] mb-2">$14.99/mo</p>
-                  <p class="text-gray-700">Basic access to sponsored visibility and lightweight listing support.</p>
-                </div>
-                <div class="rounded-xl border border-gray-200 p-6">
-                  <h2 class="text-xl font-bold mb-2">Monthly editing bundle</h2>
-                  <p class="text-3xl font-bold text-[#ED5409] mb-2">10 edits</p>
-                  <p class="text-gray-700">Up to 10 listing or creative changes per month for active advertisers.</p>
-                </div>
-              </div>
-              <div class="mt-8 bg-gray-50 rounded-xl p-6">
-                <h2 class="text-xl font-bold mb-3">Eligibility reminder</h2>
-                <p class="text-gray-700">We only update business assets after we can verify the business email or confirm explicit access, and we check Google Business or Facebook Business details when needed.</p>
-              </div>
-            </div>
-          </div>
-        `;
+        let localAuction = null;
+        let regionalAuction = null;
+        try {
+          [localAuction, regionalAuction] = await Promise.all([
+            getAuctionStatus(env.DB, 'local-spotlight'),
+            getAuctionStatus(env.DB, 'regional-spotlight')
+          ]);
+        } catch (error) {
+          console.warn('Auction pricing unavailable; using fallback preview values', error);
+        }
+        const content = pricingPageContent({ localAuction, regionalAuction });
         return new Response(htmlTemplate('Pricing', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
@@ -475,20 +380,235 @@ async function runDailyBlogAutomation(env: Env, db: DatabaseService, scheduledTi
 
 // Homepage handler
 async function handleHomepage(db: DatabaseService, env: Env): Promise<Response> {
-  const [categories, featured, stats, blogPosts, homepageAds] = await Promise.all([
-    db.getAllCategories(),
-    db.getFeaturedBusinesses(6),
-    db.getStats(),
-    db.getRecentBlogPosts(3),
-    db.getActiveAdPlacements('homepage-featured')
-  ]);
+  const fallbackCategories = [
+    { slug: 'home-services', name: 'Home Services', icon: '🏠' },
+    { slug: 'automotive', name: 'Automotive', icon: '🚗' },
+    { slug: 'food-dining', name: 'Food & Dining', icon: '🍽️' },
+    { slug: 'beauty-personal-care', name: 'Beauty', icon: '💇' },
+    { slug: 'retail-shopping', name: 'Retail', icon: '🛍️' }
+  ];
+  const fallbackFeatured = [
+    { slug: 'maple-tree-roofing', name: 'Maple Tree Roofing', city: 'Paris', state: 'TX', description: 'Roofing, storm repairs, and replacement estimates for regional homeowners.', is_verified: true, google_rating: 4.9, google_review_count: 37, image_url: null },
+    { slug: 'red-river-auto-spa', name: 'Red River Auto Spa', city: 'Idabel', state: 'OK', description: 'Full-service auto detailing and interior refreshes.', is_verified: true, google_rating: 4.8, google_review_count: 24, image_url: null },
+    { slug: 'pine-crest-hardware', name: 'Pine Crest Hardware', city: 'Broken Bow', state: 'OK', description: 'Local hardware and project supplies for homeowners and contractors.', is_verified: false, google_rating: 4.7, google_review_count: 19, image_url: null }
+  ];
 
-  const content = homepageContent({ categories, featured, stats, blogPosts, homepageAds });
+  let categories = fallbackCategories;
+  let featured = fallbackFeatured;
+  let sponsored: any[] = [];
+  let stats = { businesses: 0, categories: fallbackCategories.length, cities: 3 };
+  let blogPosts: any[] = [];
+
+  try {
+    [categories, featured, sponsored, stats, blogPosts] = await Promise.all([
+      db.getAllCategories(),
+      db.getFeaturedBusinesses(6),
+      db.getActiveAdPlacements('homepage-featured'),
+      db.getStats(),
+      db.getRecentBlogPosts(3)
+    ]);
+  } catch (error) {
+    console.warn('Homepage data unavailable; using fallback preview content', error);
+  }
+
+  const content = homepageContent({ categories, featured, sponsored, stats, blogPosts });
   const html = htmlTemplate('Home - Find Local Businesses', content, env);
 
   return new Response(html, {
     headers: { 'Content-Type': 'text/html' }
   });
+}
+
+const LISTING_PAGE_SIZE = 15;
+
+function getPageNumber(url: URL): number {
+  const raw = Number.parseInt(url.searchParams.get('page') || '1', 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 1;
+}
+
+function listingCard(business: any, featured = false): string {
+  const imageHtml = business.image_url
+    ? `<img src="${business.image_url}" alt="${business.name}" loading="lazy" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105">`
+    : business.facebook_image_url
+      ? `<img src="${business.facebook_image_url}" alt="${business.name}" loading="lazy" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">`
+      : `<div class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,203,103,.45),rgba(237,84,9,.95))] flex items-center justify-center"><span class="text-5xl">🏪</span></div>`;
+
+  return `
+    <a href="/business/${business.slug}" class="group overflow-hidden rounded-3xl border border-white/10 bg-[#111827] shadow-[0_20px_60px_rgba(0,0,0,.24)] transition-all duration-300 hover:-translate-y-1 hover:border-[#FFCB67]/40 hover:shadow-[0_24px_70px_rgba(237,84,9,.18)] reveal-on-scroll" data-reveal>
+      <div class="relative aspect-[16/10] bg-gradient-to-br from-[#FFCB67] to-[#ED5409] overflow-hidden">
+        ${imageHtml}
+        ${featured ? '<div class="absolute top-4 left-4 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-[#FFCB67] backdrop-blur">Featured</div>' : ''}
+        <div class="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/60 to-transparent"></div>
+      </div>
+      <div class="bg-white px-5 py-5 text-slate-900">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h3 class="text-[1.7rem] font-black leading-[0.95] tracking-[-0.03em] text-slate-900 uppercase break-words">${business.name}</h3>
+            <p class="mt-3 text-lg font-semibold text-slate-500">${business.city}, ${business.state}</p>
+          </div>
+          ${business.is_verified ? '<span class="mt-1 shrink-0 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-widest text-blue-700">Verified</span>' : ''}
+        </div>
+        ${business.description ? `<p class="mt-4 text-[1.04rem] leading-7 text-slate-700 line-clamp-3">${business.description}</p>` : ''}
+        <div class="mt-5 flex items-center justify-between gap-4 border-t border-slate-200 pt-4">
+          <div class="flex items-center gap-2 text-base text-slate-500">
+            ${business.google_rating ? `<span class="text-amber-500 text-lg">★</span><span class="font-semibold text-slate-700">${business.google_rating.toFixed(1)}</span><span>(${business.google_review_count || 0})</span>` : '<span>No reviews yet</span>'}
+          </div>
+          <span class="text-sm font-bold uppercase tracking-widest text-[#ED5409]">View</span>
+        </div>
+      </div>
+    </a>
+  `;
+}
+
+function listingGrid(businesses: any[], featured = false): string {
+  return businesses.map((business) => listingCard(business, featured)).join('');
+}
+
+function renderLoadingGrid(count = LISTING_PAGE_SIZE): string {
+  return Array.from({ length: count }).map(() => `
+    <div class="overflow-hidden rounded-3xl border border-white/10 bg-[#111827] shadow-[0_20px_60px_rgba(0,0,0,.18)]">
+      <div class="aspect-[16/10] bg-gradient-to-br from-slate-700 via-slate-800 to-slate-700 animate-pulse"></div>
+      <div class="bg-white px-5 py-5">
+        <div class="h-8 w-4/5 rounded bg-slate-200 animate-pulse"></div>
+        <div class="mt-3 h-5 w-2/5 rounded bg-slate-200 animate-pulse"></div>
+        <div class="mt-4 h-4 w-full rounded bg-slate-200 animate-pulse"></div>
+        <div class="mt-2 h-4 w-5/6 rounded bg-slate-200 animate-pulse"></div>
+        <div class="mt-5 flex items-center justify-between border-t border-slate-200 pt-4">
+          <div class="h-5 w-28 rounded bg-slate-200 animate-pulse"></div>
+          <div class="h-4 w-14 rounded bg-slate-200 animate-pulse"></div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function listingControls({ total, shown, page, hasMore, nextPageUrl, label }: { total: number; shown: number; page: number; hasMore: boolean; nextPageUrl: string; label: string; }): string {
+  return `
+    <div class="mt-8 flex flex-col gap-4 rounded-3xl border border-white/10 bg-[#111827] p-5 text-white md:flex-row md:items-center md:justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-[0.28em] text-slate-400">Results</p>
+        <p class="mt-1 text-lg font-semibold text-white" data-listings-summary>Showing ${shown} of ${total} ${label}</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">Page ${page}</span>
+        ${hasMore ? `<button id="loadMoreListings" data-next-page-url="${nextPageUrl}" class="rounded-full bg-[#ED5409] px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition-transform hover:-translate-y-0.5 hover:shadow-[0_14px_36px_rgba(237,84,9,.28)]">Load more</button>` : ''}
+      </div>
+    </div>
+    <script>
+      (() => {
+        const grid = document.querySelector('[data-listings-grid]');
+        const button = document.getElementById('loadMoreListings');
+        const counter = document.querySelector('[data-listings-summary]');
+        if (!grid || !button) return;
+        button.addEventListener('click', async () => {
+          const nextUrl = new URL(button.dataset.nextPageUrl, window.location.origin);
+          button.disabled = true;
+          button.textContent = 'Loading...';
+          try {
+            const res = await fetch(nextUrl.toString() + '&partial=1', { headers: { 'X-Requested-With': 'fetch' } });
+            const data = await res.json();
+            grid.insertAdjacentHTML('beforeend', data.html);
+            if (counter) counter.textContent = 'Showing ' + data.shown + ' of ' + data.total + ' ' + data.label;
+            const nextPage = data.page + 1;
+            const url = new URL(window.location.href);
+            url.searchParams.set('page', String(data.page));
+            url.searchParams.delete('partial');
+            history.pushState({}, '', url.toString());
+            if (data.hasMore) {
+              const next = new URL(window.location.href);
+              next.searchParams.set('page', String(nextPage));
+              button.dataset.nextPageUrl = next.toString();
+              button.textContent = 'Load more';
+              button.disabled = false;
+            } else {
+              button.remove();
+            }
+            document.querySelectorAll('[data-reveal]').forEach((el) => observer.observe(el));
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = 'Load more';
+            console.error(error);
+          }
+        });
+
+        const observer = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-visible');
+              observer.unobserve(entry.target);
+            }
+          }
+        }, { threshold: 0.18, rootMargin: '0px 0px -10% 0px' });
+        document.querySelectorAll('[data-reveal]').forEach((el) => observer.observe(el));
+        window.addEventListener('scroll', () => {}, { passive: true });
+      })();
+    </script>
+  `;
+}
+
+function renderFallbackCategoryPage(slug: string, env: Env): Response {
+  const title = slug
+    .split('-')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+
+  const mockBusinesses = [
+    {
+      slug: `${slug}-preview-one`,
+      name: `${title} Co.`,
+      city: 'Atoka',
+      state: 'OK',
+      description: 'Local preview listing shown until the database tables are available.'
+    },
+    {
+      slug: `${slug}-preview-two`,
+      name: `Riverbend ${title}`,
+      city: 'Paris',
+      state: 'TX',
+      description: 'Fallback card used to verify the new grid, spacing, and motion.'
+    },
+    {
+      slug: `${slug}-preview-three`,
+      name: `${title} Services`,
+      city: 'Broken Bow',
+      state: 'OK',
+      description: 'Once the D1 schema is present, this page will render live businesses here.'
+    }
+  ];
+
+  const content = `
+    <div class="relative overflow-hidden bg-[#0b0f14] text-white">
+      <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(237,84,9,.32),transparent_46%),radial-gradient(circle_at_bottom_right,rgba(255,203,103,.14),transparent_32%)]"></div>
+      <div class="container mx-auto px-4 py-16 relative z-10">
+        <div class="max-w-4xl">
+          <p class="text-sm uppercase tracking-[0.32em] text-[#FFCB67]">Directory category</p>
+          <div class="mt-4 flex items-start gap-5">
+            <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-white/10 text-5xl shadow-[0_16px_40px_rgba(0,0,0,.25)]">📁</div>
+            <div>
+              <h1 class="text-4xl font-black tracking-[-0.04em] md:text-6xl">${title}</h1>
+              <p class="mt-4 max-w-2xl text-lg leading-8 text-slate-300">Local preview mode is showing fallback businesses because the local database schema is empty.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="container mx-auto px-4 py-12">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <p class="text-sm uppercase tracking-[0.28em] text-slate-500">Browse local businesses</p>
+        <a href="/submit" class="rounded-full border border-[#ED5409]/30 bg-[#ED5409]/10 px-4 py-2 text-sm font-semibold text-[#ED5409] transition hover:bg-[#ED5409] hover:text-white">Add your business</a>
+      </div>
+      <div class="mt-6">
+        ${listingControls({ total: mockBusinesses.length, shown: mockBusinesses.length, page: 1, hasMore: false, nextPageUrl: '#', label: title })}
+      </div>
+      <div data-listings-grid class="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+        ${listingGrid(mockBusinesses)}
+      </div>
+    </div>
+  `;
+
+  const html = htmlTemplate(`${title} Businesses`, content, env);
+  return new Response(html, { headers: { 'Content-Type': 'text/html' } });
 }
 
 // Sitemap handler for search engines and AI Search
@@ -658,7 +778,6 @@ async function handleSearch(request: Request, db: DatabaseService, env: Env): Pr
 
   // Always run database search
   const results = await db.searchBusinesses({ query, category, city, limit: 20 });
-  const categories = await db.getAllCategories();
 
   // Check if query is a natural language question
   const isNaturalLanguage = query.length > 15 || /\b(what|where|who|when|why|how|best|find|looking for|need|recommend|suggest)\b/i.test(query);
@@ -702,7 +821,7 @@ async function handleSearch(request: Request, db: DatabaseService, env: Env): Pr
                         aiBusinessLinks.push({
                           name: business.name,
                           url: `/business/${slug}`,
-                          businesses: business.description || `${business.name} in ${business.city}, ${business.state}`
+                          description: business.description || `${business.name} in ${business.city}, ${business.state}`
                         });
                       }
                     }
@@ -760,15 +879,6 @@ async function handleSearch(request: Request, db: DatabaseService, env: Env): Pr
         </div>
       ` : ''}
 
-      ${aiAnswer && aiBusinessLinks.length > 0 && results.data.length > 0 ? `
-        <h2 class="text-xl font-bold mb-4 text-gray-300 flex items-center gap-2">
-          <span>More Businesses</span>
-          <span class="text-sm text-gray-500 font-normal">(${results.data.length} total results)</span>
-        </h2>
-      ` : results.data.length > 0 ? `
-        <h2 class="text-xl font-bold mb-4 text-gray-300">Business Listings</h2>
-      ` : ''}
-
       ${results.data.length === 0 && aiBusinessLinks.length === 0 ? `
         <div class="glow-card rounded-lg p-8 text-center">
           <p class="text-xl text-gray-300">No businesses found matching your search.</p>
@@ -811,56 +921,127 @@ async function handleSearch(request: Request, db: DatabaseService, env: Env): Pr
 }
 
 // Category page handler
-async function handleCategoryPage(slug: string, db: DatabaseService, env: Env): Promise<Response> {
+async function handleCategoryPage(request: Request, slug: string, db: DatabaseService, env: Env): Promise<Response> {
   const category = await db.getCategoryBySlug(slug);
   if (!category) {
-    return new Response('Category not found', { status: 404 });
+    return renderFallbackCategoryPage(slug, env);
   }
 
-  const businesses = await db.getBusinessesByCategory(slug, 50);
+  const url = new URL(request.url);
+  const page = getPageNumber(url);
+  const offset = (page - 1) * LISTING_PAGE_SIZE;
+  const partial = url.searchParams.get('partial') === '1';
+  const results = await db.searchBusinesses({ category: slug, limit: LISTING_PAGE_SIZE, offset });
+  const totalPages = Math.max(1, Math.ceil(results.total / LISTING_PAGE_SIZE));
+
+  const nextPageUrl = new URL(url.toString());
+  nextPageUrl.searchParams.set('page', String(page + 1));
+  nextPageUrl.searchParams.delete('partial');
+
+  if (partial) {
+    return new Response(JSON.stringify({
+      html: listingGrid(results.data),
+      total: results.total,
+      shown: Math.min(page * LISTING_PAGE_SIZE, results.total),
+      page,
+      hasMore: results.hasMore,
+      label: category.name
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
   const content = `
-    <div class="gradient-bg text-white py-12">
-      <div class="container mx-auto px-4">
-        <div class="text-center">
-          <div class="text-6xl mb-4">${category.icon || '📁'}</div>
-          <h1 class="text-4xl font-bold mb-2">${category.name}</h1>
-          <p class="text-xl opacity-90">${category.description || ''}</p>
+    <div class="relative overflow-hidden bg-[#0b0f14] text-white">
+      <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(237,84,9,.32),transparent_46%),radial-gradient(circle_at_bottom_right,rgba(255,203,103,.14),transparent_32%)]"></div>
+      <div class="container mx-auto px-4 py-16 relative z-10">
+        <div class="max-w-4xl">
+          <p class="text-sm uppercase tracking-[0.32em] text-[#FFCB67]">Directory category</p>
+          <div class="mt-4 flex items-start gap-5">
+            <div class="flex h-20 w-20 items-center justify-center rounded-3xl bg-white/10 text-5xl shadow-[0_16px_40px_rgba(0,0,0,.25)]">${category.icon || '📁'}</div>
+            <div>
+              <h1 class="text-4xl font-black tracking-[-0.04em] md:text-6xl">${category.name}</h1>
+              <p class="mt-4 max-w-2xl text-lg leading-8 text-slate-300">${category.description || ''}</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <div class="container mx-auto px-4 py-12">
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        ${businesses.map(business => `
-          <a href="/business/${business.slug}" class="card-hover bg-white rounded-xl shadow-lg overflow-hidden">
-            <div class="h-40 bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
-              ${business.image_url ? 
-                `<img src="${business.image_url}" alt="${business.name}" class="w-full h-full object-cover">` :
-                `<span class="text-5xl">🏪</span>`
-              }
-            </div>
-            <div class="p-4">
-              <h3 class="text-lg font-bold text-gray-800 mb-1">${business.name}</h3>
-              <p class="text-gray-600 text-sm mb-2">${business.city}, ${business.state}</p>
-              ${business.description ? `<p class="text-gray-700 text-sm mb-3 line-clamp-2">${business.description}</p>` : ''}
-              <div class="flex items-center">
-                ${business.google_rating ? `
-                  <span class="text-yellow-400">⭐</span>
-                  <span class="ml-1 font-semibold">${business.google_rating.toFixed(1)}</span>
-                  <span class="ml-1 text-gray-500 text-sm">(${business.google_review_count || 0})</span>
-                ` : '<span class="text-gray-500 text-sm">No reviews yet</span>'}
-              </div>
-            </div>
-          </a>
-        `).join('')}
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p class="text-sm uppercase tracking-[0.28em] text-slate-500">Browse local businesses</p>
+          <p class="mt-1 text-sm text-slate-400">Showing ${Math.min(page * LISTING_PAGE_SIZE, results.total)} of ${results.total} ${category.name}</p>
+        </div>
+        <a href="/submit" class="rounded-full border border-[#ED5409]/30 bg-[#ED5409]/10 px-4 py-2 text-sm font-semibold text-[#ED5409] transition hover:bg-[#ED5409] hover:text-white">Add your business</a>
       </div>
+
+      <div data-listings-grid class="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+        ${listingGrid(results.data)}
+      </div>
+
+      ${results.hasMore ? `
+        <div class="mt-8 flex justify-center">
+          <button id="loadMoreListings" data-next-page-url="${nextPageUrl.toString()}" class="rounded-full bg-[#ED5409] px-6 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition-transform hover:-translate-y-0.5 hover:shadow-[0_14px_36px_rgba(237,84,9,.28)]">
+            Load more
+          </button>
+        </div>
+      ` : ''}
     </div>
+
+    <script>
+      (() => {
+        const grid = document.querySelector('[data-listings-grid]');
+        const button = document.getElementById('loadMoreListings');
+        if (!grid || !button) return;
+        button.addEventListener('click', async () => {
+          const nextUrl = new URL(button.dataset.nextPageUrl, window.location.origin);
+          button.disabled = true;
+          button.textContent = 'Loading...';
+          try {
+            const res = await fetch(nextUrl.toString() + '&partial=1', { headers: { 'X-Requested-With': 'fetch' } });
+            const data = await res.json();
+            grid.insertAdjacentHTML('beforeend', data.html);
+            const nextPage = data.page + 1;
+            const url = new URL(window.location.href);
+            url.searchParams.set('page', String(data.page));
+            url.searchParams.delete('partial');
+            history.pushState({}, '', url.toString());
+            if (data.hasMore) {
+              const next = new URL(window.location.href);
+              next.searchParams.set('page', String(nextPage));
+              button.dataset.nextPageUrl = next.toString();
+              button.textContent = 'Load more';
+              button.disabled = false;
+            } else {
+              button.remove();
+            }
+            document.querySelectorAll('[data-reveal]').forEach((el) => observer.observe(el));
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = 'Load more';
+            console.error(error);
+          }
+        });
+
+        const observer = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-visible');
+              observer.unobserve(entry.target);
+            }
+          }
+        }, { threshold: 0.18, rootMargin: '0px 0px -10% 0px' });
+        document.querySelectorAll('[data-reveal]').forEach((el) => observer.observe(el));
+      })();
+    </script>
   `;
 
   const html = htmlTemplate(`${category.name} Businesses`, content, env);
   return new Response(html, { headers: { 'Content-Type': 'text/html' } });
 }
+
 
 // Render Facebook posts section
 async function renderFacebookPosts(businessId: number, db: DatabaseService, env: Env): Promise<string> {
@@ -922,7 +1103,107 @@ async function renderFacebookPosts(businessId: number, db: DatabaseService, env:
 }
 
 // Business detail page
+const UPGRADED_PAGE_KEYS: Record<string, string> = {
+  'srvcflo-web-marketing-design': 'pages/srvcflo-web-marketing-design/index.html',
+  srvcflo: 'pages/srvcflo/index.html',
+  'twisted-custom-leather': 'pages/twisted-custom-leather/index.html',
+  'velvet-fringe': 'pages/velvet-fringe/index.html'
+};
+
+async function tryPublishedBusinessPage(slug: string, env: Env): Promise<Response | null> {
+  try {
+    const upgradedKey = UPGRADED_PAGE_KEYS[slug];
+    if (upgradedKey) {
+      const upgradedObject = await env.BUSINESS_ASSETS.get(upgradedKey);
+      if (upgradedObject) {
+        return new Response(upgradedObject.body, {
+          headers: {
+            'Content-Type': upgradedObject.httpMetadata?.contentType || 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=300',
+            'ETag': upgradedObject.etag || '',
+            'X-KBC-Page-Source': 'upgraded-listing-r2'
+          }
+        });
+      }
+    }
+
+    const published = await env.DB.prepare(`
+      SELECT p.r2_key, p.html_hash, p.published_at
+      FROM published_pages_r2 p
+      INNER JOIN listing_pages lp ON lp.id = p.listing_page_id
+      INNER JOIN businesses b ON b.id = lp.business_id
+      WHERE b.slug = ? AND b.is_active = 1 AND lp.is_published = 1
+      ORDER BY p.published_at DESC
+      LIMIT 1
+    `).bind(slug).first<{ r2_key: string; html_hash: string; published_at: number }>();
+
+    if (!published) return null;
+
+    // Only serve the two page key conventions owned by KBC's publisher.
+    const allowedKeys = new Set([
+      `business/${slug}/index.html`,
+      `pages/${slug}/index.html`
+    ]);
+    if (!allowedKeys.has(published.r2_key)) {
+      console.error('Rejected published page key outside slug allowlist', { slug, key: published.r2_key });
+      return null;
+    }
+
+    const object = await env.BUSINESS_ASSETS.get(published.r2_key);
+    if (!object) return null;
+
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': object.httpMetadata?.contentType || 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=300',
+        'ETag': object.etag || published.html_hash,
+        'X-KBC-Page-Source': 'published-r2'
+      }
+    });
+  } catch (error) {
+    // Older deployments may not have the portal tables yet. Preserve the
+    // existing plain listing renderer as the safe compatibility path.
+    console.warn('Published page lookup unavailable; using plain listing', error);
+    return null;
+  }
+}
+
+async function renderBusinessImageCarousel(business: Business, env: Env): Promise<string> {
+  try {
+    const listed = await env.BUSINESS_IMAGES.list({ prefix: `businesses/${business.slug}/`, limit: 24 });
+    const imageObjects = listed.objects.filter((object) => /\.(avif|gif|jpe?g|png|webp)$/i.test(object.key));
+    if (imageObjects.length === 0) return '';
+
+    const publicBase = (env.BUSINESS_IMAGES_PUBLIC_URL || '').replace(/\/$/, '');
+    if (!publicBase) return '';
+
+    const cards = imageObjects.map((object, index) => {
+      const publicUrl = `${publicBase}/${object.key.split('/').map(encodeURIComponent).join('/')}`;
+      return `<figure class="min-w-[82%] sm:min-w-[48%] lg:min-w-[31%] snap-start overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+        <img src="${publicUrl}" alt="${escapeHtml(business.name)} gallery image ${index + 1}" class="h-64 w-full object-cover" loading="lazy" decoding="async">
+      </figure>`;
+    }).join('');
+
+    return `<section class="mt-12" aria-labelledby="business-gallery-heading">
+      <div class="flex items-end justify-between gap-4 mb-4">
+        <div>
+          <p class="text-xs uppercase tracking-widest text-gray-500">Business gallery</p>
+          <h2 id="business-gallery-heading" class="text-3xl font-bold">More from ${escapeHtml(business.name)}</h2>
+        </div>
+        <span class="text-sm text-gray-500">Swipe to explore</span>
+      </div>
+      <div class="flex snap-x gap-4 overflow-x-auto pb-3">${cards}</div>
+    </section>`;
+  } catch (error) {
+    console.warn('Business gallery unavailable', { businessId: business.id, error });
+    return '';
+  }
+}
+
 async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): Promise<Response> {
+  const publishedResponse = await tryPublishedBusinessPage(slug, env);
+  if (publishedResponse) return publishedResponse;
+
   const business = await db.getBusinessBySlug(slug);
   if (!business) {
     return new Response('Business not found', { status: 404 });
@@ -1042,7 +1323,62 @@ async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): 
             </div>
           </div>
 
+          ${await renderBusinessImageCarousel(business, env)}
+
           ${await renderFacebookPosts(business.id, db, env)}
+
+          <!-- Claim Listing -->
+          <div class="mt-12 rounded-xl border-2 border-[#ED5409]/30 bg-[#fff8ef] p-8">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">Is this your business?</h2>
+            <p class="text-gray-700 mb-6">Claim this listing to request verified ownership and update your public business information. There is no charge to submit a claim.</p>
+            <form id="claimForm-${business.id}" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input type="hidden" name="business_id" value="${business.id}">
+              <div>
+                <label class="block font-semibold text-gray-800 mb-2">Your name *</label>
+                <input name="name" required maxlength="120" class="w-full rounded-lg border border-gray-300 px-4 py-3">
+              </div>
+              <div>
+                <label class="block font-semibold text-gray-800 mb-2">Business email *</label>
+                <input name="email" type="email" required maxlength="255" class="w-full rounded-lg border border-gray-300 px-4 py-3">
+              </div>
+              <div>
+                <label class="block font-semibold text-gray-800 mb-2">Phone</label>
+                <input name="phone" type="tel" maxlength="30" class="w-full rounded-lg border border-gray-300 px-4 py-3">
+              </div>
+              <div class="flex items-end">
+                <button type="submit" class="w-full rounded-lg bg-[#ED5409] px-5 py-3 font-bold text-white">Request ownership</button>
+              </div>
+              <p id="claimMessage-${business.id}" class="md:col-span-2 text-sm text-gray-700" role="status"></p>
+            </form>
+            <script>
+              (() => {
+                const form = document.getElementById('claimForm-${business.id}');
+                const message = document.getElementById('claimMessage-${business.id}');
+                if (!form || !message) return;
+                form.addEventListener('submit', async (event) => {
+                  event.preventDefault();
+                  const button = form.querySelector('button[type="submit"]');
+                  if (button) { button.disabled = true; button.textContent = 'Submitting...'; }
+                  try {
+                    const response = await fetch('/api/businesses/${business.id}/claim', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(Object.fromEntries(new FormData(form)))
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || 'Claim request failed');
+                    message.textContent = result.message;
+                    message.className = 'md:col-span-2 text-sm text-green-700';
+                    form.reset();
+                  } catch (error) {
+                    message.textContent = error instanceof Error ? error.message : 'Claim request failed. Please try again.';
+                    message.className = 'md:col-span-2 text-sm text-red-700';
+                    if (button) { button.disabled = false; button.textContent = 'Request ownership'; }
+                  }
+                });
+              })();
+            </script>
+          </div>
 
           <!-- Contact Lead Form -->
           <div class="mt-12 bg-gradient-to-br from-[#FFCB67] to-[#FFA59D] rounded-xl p-8">
@@ -1638,55 +1974,11 @@ async function handleCategoriesList(db: DatabaseService, env: Env): Promise<Resp
 
 // Blog handler
 async function handleBlog(db: DatabaseService, env: Env): Promise<Response> {
-  const [posts, sponsoredAds] = await Promise.all([
-    db.getRecentBlogPosts(20),
-    db.getActiveAdPlacements('sponsored')
-  ]);
+  const posts = await db.getRecentBlogPosts(20);
 
   const content = `
     <div class="container mx-auto px-4 py-12">
       <h1 class="text-4xl font-bold text-center mb-12 text-primary">Business Spotlights & News</h1>
-
-      ${sponsoredAds.length > 0 ? `
-        <section class="mb-12">
-          <div class="flex items-center justify-between mb-6">
-            <div>
-              <p class="text-sm uppercase tracking-[0.2em] text-[#ED5409] font-semibold">Sponsored placements</p>
-              <h2 class="text-2xl font-bold text-primary mt-1">Businesses advertising right now</h2>
-            </div>
-            <a href="/advertise" class="sonic-orange font-semibold hover:text-[#FFCB67] transition-colors">Advertise →</a>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            ${sponsoredAds.slice(0, 3).map((ad: any) => `
-              <a href="/business/${ad.slug}" class="glow-card block overflow-hidden group">
-                <div class="h-44 bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden">
-                  ${(ad.image_url || (ad as any).facebook_image_url) ? `<img src="${ad.image_url || (ad as any).facebook_image_url}" alt="${ad.name}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">` : ''}
-                  <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
-                </div>
-                <div class="p-5">
-                  <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${ad.name}</h3>
-                  <p class="text-secondary text-sm mb-3">${ad.city}, ${ad.state}</p>
-                  ${ad.description ? `<p class="text-gray-300 line-clamp-3 mb-4">${ad.description}</p>` : ''}
-                  <span class="sonic-orange font-semibold">View sponsor →</span>
-                </div>
-              </a>
-            `).join('')}
-          </div>
-        </section>
-      ` : `
-        <section class="mb-12">
-          <div class="glow-card p-8 border border-dashed border-gray-700 bg-black/20">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
-                <p class="text-sm uppercase tracking-[0.2em] text-[#ED5409] font-semibold">Sponsored placements</p>
-                <h2 class="text-2xl font-bold text-primary mt-1">Your business can sponsor this section</h2>
-                <p class="text-secondary mt-2 max-w-2xl">Blog pages highlight the current auction winners when they’re live, and otherwise keep a dedicated sponsor slot ready for the next advertiser.</p>
-              </div>
-              <a href="/advertise" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold inline-block whitespace-nowrap">Advertise now</a>
-            </div>
-          </div>
-        </section>
-      `}
 
       ${posts.length === 0 ? `
         <div class="text-center text-secondary py-12">
@@ -1724,10 +2016,7 @@ async function handleBlog(db: DatabaseService, env: Env): Promise<Response> {
 
 // Individual blog post handler
 async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Promise<Response> {
-  const [post, sidebarAds] = await Promise.all([
-    db.getBlogPostBySlug(slug),
-    db.getActiveAdPlacements('sidebar')
-  ]);
+  const post = await db.getBlogPostBySlug(slug);
 
   if (!post) {
     return new Response('Blog post not found', { status: 404 });
@@ -1766,6 +2055,62 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
     month: 'long',
     day: 'numeric'
   });
+
+  let sidebarPlacements: any[] = [];
+  let localAuction: any = null;
+  let regionalAuction: any = null;
+  try {
+    [sidebarPlacements, localAuction, regionalAuction] = await Promise.all([
+      db.getActiveAdPlacements('sidebar'),
+      getAuctionStatus(env.DB, 'local-spotlight'),
+      getAuctionStatus(env.DB, 'regional-spotlight')
+    ]);
+  } catch (error) {
+    console.warn('Blog sidebar ads unavailable; using fallback inventory cards', error);
+  }
+
+  const sidebarAd = (placement: any, sticky = false) => `
+    <a href="/business/${placement.slug}" class="glow-card block p-6 ${sticky ? 'sticky top-24' : ''}" aria-label="Sponsored: ${placement.name}">
+      <div class="rounded-lg overflow-hidden mb-4 h-40 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
+        ${placement.image_url ? `<img src="${placement.image_url}" alt="${placement.name}" class="w-full h-full object-cover">` : placement.facebook_image_url ? `<img src="${placement.facebook_image_url}" alt="${placement.name}" class="w-full h-full object-cover">` : `<span class="text-5xl">🏪</span>`}
+      </div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-bold uppercase tracking-widest text-[#ED5409]">${placement.sponsored_label || 'Sponsored'}</span>
+        <span class="text-xs text-secondary">Live placement</span>
+      </div>
+      <h3 class="text-xl font-bold text-primary">${placement.name}</h3>
+      <p class="text-secondary text-sm mt-1">${placement.city}, ${placement.state}</p>
+      ${placement.description ? `<p class="text-gray-300 mt-3 line-clamp-3">${placement.description}</p>` : ''}
+      <span class="inline-block mt-4 sonic-orange font-semibold">View sponsor →</span>
+    </a>`;
+
+  const auctionFallback = (title: string, status: any, sticky = false) => {
+    const current = status || { tier: { label: title, placement_type: 'sidebar', floor_cents: title === 'Regional Spotlight' ? 2500 : 500 }, openingBidCents: title === 'Regional Spotlight' ? 2500 : 500, currentBidCents: title === 'Regional Spotlight' ? 2500 : 500, paymentStatus: 'pending-square', currentBusinessId: null };
+    return `
+      <div class="glow-card p-6 ${sticky ? 'sticky top-24' : ''}">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-bold uppercase tracking-widest text-[#ED5409]">Auction inventory</span>
+          <span class="text-xs text-secondary">${current.paymentStatus}</span>
+        </div>
+        <h3 class="text-xl font-bold text-primary mb-2">${current.tier.label}</h3>
+        <p class="text-gray-300 mb-4">Live sponsored placement is available through the auction. Square payment verification keeps the slot pending until confirmed.</p>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="rounded-xl bg-black/20 border border-white/5 p-4">
+            <div class="text-xs uppercase tracking-widest text-secondary">Floor</div>
+            <div class="text-2xl font-bold mt-1 text-[#FFCB67]">$${(current.tier.floor_cents / 100).toFixed(2)}</div>
+          </div>
+          <div class="rounded-xl bg-black/20 border border-white/5 p-4">
+            <div class="text-xs uppercase tracking-widest text-secondary">Current</div>
+            <div class="text-2xl font-bold mt-1 text-[#FFCB67]">$${(current.currentBidCents / 100).toFixed(2)}</div>
+          </div>
+        </div>
+        <div class="text-sm text-gray-400 mb-4">${current.currentBusinessId ? 'This slot is occupied' : 'No current winner yet'}</div>
+        <div class="flex gap-3 flex-wrap">
+          <a href="/advertise" class="btn-glow text-white px-5 py-3 rounded-lg font-semibold inline-block">Advertise</a>
+          <a href="/pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-5 py-3 rounded-lg font-semibold inline-block hover:bg-[#ED5409]/10 transition-colors">Pricing</a>
+        </div>
+      </div>`;
+  };
 
   const content = `
     <div class="container mx-auto px-4 py-12">
@@ -1839,30 +2184,9 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
             </div>
           </article>
 
-          <!-- Sidebar with Ad Placeholders -->
+          <!-- Sidebar with Sponsored Placements -->
           <aside class="lg:col-span-4 space-y-6">
-
-            ${sidebarAds[0] ? `
-            <a href="/business/${sidebarAds[0].slug}" class="glow-card block overflow-hidden group">
-              <div class="bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden rounded-lg">
-                ${(sidebarAds[0].image_url || (sidebarAds[0] as any).facebook_image_url) ? `<img src="${sidebarAds[0].image_url || (sidebarAds[0] as any).facebook_image_url}" alt="${sidebarAds[0].name}" class="w-full h-52 object-cover group-hover:scale-105 transition-transform duration-300">` : `<div class="h-52"></div>`}
-                <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
-              </div>
-              <div class="p-5">
-                <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${sidebarAds[0].name}</h3>
-                <p class="text-secondary text-sm mb-3">${sidebarAds[0].city}, ${sidebarAds[0].state}</p>
-                <p class="text-gray-300 text-sm line-clamp-4 mb-4">${sidebarAds[0].description || 'Sponsored placement on Kiamichi Biz Connect.'}</p>
-                <span class="sonic-orange font-semibold">View sponsor →</span>
-              </div>
-            </a>
-            ` : `
-            <div class="glow-card p-6 text-center">
-              <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-8 border-2 border-dashed border-gray-700">
-                <p class="text-gray-500 text-sm mb-2">Advertisement</p>
-                <p class="text-gray-600 text-xs">300x250</p>
-              </div>
-            </div>
-            `}
+            ${sidebarPlacements[0] ? sidebarAd(sidebarPlacements[0]) : auctionFallback('Local Spotlight', localAuction)}
 
             <!-- Popular Posts -->
             <div class="glow-card p-6">
@@ -1880,29 +2204,6 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
               </div>
             </div>
 
-            ${sidebarAds[1] ? `
-            <a href="/business/${sidebarAds[1].slug}" class="glow-card block overflow-hidden group">
-              <div class="bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden rounded-lg">
-                ${(sidebarAds[1].image_url || (sidebarAds[1] as any).facebook_image_url) ? `<img src="${sidebarAds[1].image_url || (sidebarAds[1] as any).facebook_image_url}" alt="${sidebarAds[1].name}" class="w-full h-52 object-cover group-hover:scale-105 transition-transform duration-300">` : `<div class="h-52"></div>`}
-                <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
-              </div>
-              <div class="p-5">
-                <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${sidebarAds[1].name}</h3>
-                <p class="text-secondary text-sm mb-3">${sidebarAds[1].city}, ${sidebarAds[1].state}</p>
-                <p class="text-gray-300 text-sm line-clamp-4 mb-4">${sidebarAds[1].description || 'Sponsored placement on Kiamichi Biz Connect.'}</p>
-                <span class="sonic-orange font-semibold">View sponsor →</span>
-              </div>
-            </a>
-            ` : `
-            <div class="glow-card p-6 text-center">
-              <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-8 border-2 border-dashed border-gray-700">
-                <p class="text-gray-500 text-sm mb-2">Advertisement</p>
-                <p class="text-gray-600 text-xs">300x250</p>
-              </div>
-            </div>
-            `}
-
-            <!-- Categories -->
             <div class="glow-card p-6">
               <h3 class="text-xl font-bold mb-4 text-primary">Browse Categories</h3>
               <div class="space-y-2">
@@ -1910,29 +2211,8 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
               </div>
             </div>
 
-            ${sidebarAds[2] ? `
-            <a href="/business/${sidebarAds[2].slug}" class="glow-card block overflow-hidden group sticky top-24">
-              <div class="bg-gradient-to-br from-[#214E81] to-[#ED5409] relative overflow-hidden rounded-lg">
-                ${(sidebarAds[2].image_url || (sidebarAds[2] as any).facebook_image_url) ? `<img src="${sidebarAds[2].image_url || (sidebarAds[2] as any).facebook_image_url}" alt="${sidebarAds[2].name}" class="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300">` : `<div class="h-64"></div>`}
-                <div class="absolute top-3 left-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">Sponsored</div>
-              </div>
-              <div class="p-5">
-                <h3 class="text-xl font-bold mb-2 text-primary group-hover:text-[#FFCB67] transition-colors">${sidebarAds[2].name}</h3>
-                <p class="text-secondary text-sm mb-3">${sidebarAds[2].city}, ${sidebarAds[2].state}</p>
-                <p class="text-gray-300 text-sm line-clamp-4 mb-4">${sidebarAds[2].description || 'Sponsored placement on Kiamichi Biz Connect.'}</p>
-                <span class="sonic-orange font-semibold">View sponsor →</span>
-              </div>
-            </a>
-            ` : `
-            <div class="glow-card p-6 text-center sticky top-24">
-              <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg p-12 border-2 border-dashed border-gray-700">
-                <p class="text-gray-500 text-sm mb-2">Advertisement</p>
-                <p class="text-gray-600 text-xs">300x600</p>
-                <p class="text-gray-700 text-xs mt-4">Sticky Ad</p>
-              </div>
-            </div>
-            `}
-
+            ${sidebarPlacements[1] ? sidebarAd(sidebarPlacements[1]) : auctionFallback('Regional Spotlight', regionalAuction)}
+            ${sidebarPlacements[2] ? sidebarAd(sidebarPlacements[2], true) : auctionFallback('Regional Spotlight', regionalAuction, true)}
           </aside>
         </div>
       </div>
@@ -1945,6 +2225,103 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
 
 // API handler (for future AJAX endpoints)
 async function handleAPI(path: string, request: Request, db: DatabaseService, env: Env): Promise<Response> {
+  // Public read-only auction status. Bid activation remains disabled until
+  // Square payment verification is wired through the server-side webhook.
+  const auctionMatch = path.match(/^\/api\/auctions\/([a-z0-9-]+)\/status$/);
+  if (auctionMatch && request.method === 'GET') {
+    const status = await getAuctionStatus(env.DB, auctionMatch[1]);
+    if (!status) return Response.json({ error: 'Auction tier not found' }, { status: 404 });
+    return Response.json(status, {
+      headers: { 'Cache-Control': 'public, max-age=30' }
+    });
+  }
+
+  const bidMatch = path.match(/^\/api\/auctions\/([a-z0-9-]+)\/bids$/);
+  if (bidMatch && request.method === 'POST') {
+    try {
+      const data = await request.json() as { business_name?: unknown; contact_email?: unknown; business_location?: unknown; bid_cents?: unknown; bidCents?: unknown };
+      const businessName = typeof data.business_name === 'string' ? data.business_name.trim().slice(0, 160) : '';
+      const contactEmail = typeof data.contact_email === 'string' ? data.contact_email.trim().toLowerCase().slice(0, 255) : '';
+      const businessLocation = typeof data.business_location === 'string' ? data.business_location.trim().slice(0, 160) : '';
+      const bidCents = Number(data.bid_cents ?? data.bidCents);
+      if (!businessName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail) || !Number.isInteger(bidCents) || bidCents <= 0) {
+        return Response.json({ error: 'business_name, contact_email, and bid_cents are required' }, { status: 400 });
+      }
+
+      let business = await env.DB.prepare(`
+        SELECT id, name FROM businesses
+        WHERE is_active = 1 AND lower(name) = lower(?)
+        LIMIT 1
+      `).bind(businessName).first<{ id: number; name: string }>();
+
+      if (!business) {
+        const category = await env.DB.prepare('SELECT id FROM categories ORDER BY id LIMIT 1').first<{ id: number }>();
+        if (!category) return Response.json({ error: 'Business categories are not configured yet' }, { status: 503 });
+        const locationParts = businessLocation.split(',').map((part) => part.trim()).filter(Boolean);
+        const city = locationParts[0] || 'Regional';
+        const state = locationParts[1] || 'OK';
+        const slug = `advertiser-${crypto.randomUUID().slice(0, 12)}`;
+        const inserted = await env.DB.prepare(`
+          INSERT INTO businesses (name, slug, description, category_id, city, state, is_verified, is_featured, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0)
+        `).bind(businessName, slug, 'Advertiser-only business record pending profile completion.', category.id, city, state).run();
+        business = { id: Number(inserted.meta.last_row_id || 0), name: businessName };
+      }
+
+      if (!business.id) return Response.json({ error: 'Could not create advertiser record' }, { status: 500 });
+      await env.DB.prepare(`
+        INSERT INTO advertiser_accounts (business_id, status, plan, contact_email, advertised_name)
+        VALUES (?, 'pending', 'auction-only', ?, ?)
+        ON CONFLICT(business_id) DO UPDATE SET contact_email = excluded.contact_email, advertised_name = excluded.advertised_name, updated_at = unixepoch()
+      `).bind(business.id, contactEmail, businessName).run();
+
+      const result = await createSponsoredAuctionBid(db, env, {
+        tierId: bidMatch[1],
+        businessId: business.id,
+        bidCents
+      });
+      return Response.json(result.body, { status: result.status });
+    } catch (error) {
+      console.error('Auction bid creation failed:', error);
+      return Response.json({ error: 'Failed to create auction bid' }, { status: 500 });
+    }
+  }
+
+  if (path === '/api/webhooks/square' && request.method === 'POST') {
+    return handleSquareWebhook(db, env, request);
+  }
+
+  const claimMatch = path.match(/^\/api\/businesses\/(\d+)\/claim$/);
+  if (claimMatch && request.method === 'POST') {
+    try {
+      const data = await request.json() as { name?: unknown; email?: unknown; phone?: unknown };
+      const businessId = Number(claimMatch[1]);
+      const name = typeof data.name === 'string' ? data.name.trim().slice(0, 120) : '';
+      const email = typeof data.email === 'string' ? data.email.trim().toLowerCase().slice(0, 255) : '';
+      const phone = typeof data.phone === 'string' ? data.phone.trim().slice(0, 30) : null;
+      if (!name || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return Response.json({ error: 'A valid name and business email are required' }, { status: 400 });
+      }
+      const business = await db.getBusinessById(businessId);
+      if (!business) return Response.json({ error: 'Business listing not found' }, { status: 404 });
+      const existing = await env.DB.prepare(`
+        SELECT id FROM business_claim_requests
+        WHERE business_id = ? AND requester_email = ? AND status = 'pending'
+        LIMIT 1
+      `).bind(businessId, email).first<{ id: number }>();
+      if (existing) return Response.json({ message: 'A claim request for this listing is already pending review.' });
+      await env.DB.prepare(`
+        INSERT INTO business_claim_requests (
+          business_id, requester_name, requester_email, requester_phone, status, verification_method
+        ) VALUES (?, ?, ?, ?, 'pending', 'manual_review')
+      `).bind(businessId, name, email, phone).run();
+      return Response.json({ message: 'Claim request received. We will review the business information and contact you for verification.' }, { status: 201 });
+    } catch (error) {
+      console.error('Business claim request failed:', error);
+      return Response.json({ error: 'Unable to submit claim request' }, { status: 500 });
+    }
+  }
+
   // API: Get categories
   if (path === '/api/categories') {
     const categories = await db.getAllCategories();

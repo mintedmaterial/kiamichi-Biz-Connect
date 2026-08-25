@@ -4,9 +4,11 @@ export interface Env {
   BUSINESS_IMAGES: R2Bucket; // kiamichi-business-images - User-generated business listing images
   BUSINESS_ASSETS: R2Bucket; // kiamichi-business-assets - Published static HTML pages
   TEMPLATES: R2Bucket; // kiamichi-component-templates - Page component templates
+  BUSINESS_IMAGES_PUBLIC_URL?: string;
   CACHE: KVNamespace;
   AI: Ai; // Includes Workers AI and AI Search (autorag)
   ANALYZER: Fetcher; // Service binding to analyzer worker
+  FLAGS: Flagship; // Flagship feature flag binding
   SITE_NAME: string;
   SITE_URL: string;
   DEFAULT_SERVICE_AREA: string;
@@ -26,6 +28,13 @@ export interface Env {
   // Facebook OAuth for business integration
   FACEBOOK_APP_ID: string;
   FACEBOOK_APP_SECRET: string;
+
+  // Square payments and webhooks for sponsored placements
+  SQUARE_ACCESS_TOKEN?: string;
+  SQUARE_LOCATION_ID?: string;
+  SQUARE_WEBHOOK_SIGNATURE_KEY?: string;
+  SQUARE_WEBHOOK_URL?: string;
+  SQUARE_ENVIRONMENT?: 'sandbox' | 'production';
 
   // Optional Facebook integration secrets (deprecated - will use OAuth tokens)
   FB_GROUP_ID?: string;
@@ -92,6 +101,22 @@ export interface AdPlacement {
   is_active: boolean;
   price_paid: number | null;
   created_at: number;
+  sponsored_label?: string;
+  auction_tier_id?: string | null;
+}
+
+export interface SponsoredAuctionTier {
+  id: string;
+  label: string;
+  placement_type: string;
+  floor_cents: number;
+  is_active: boolean;
+}
+
+export interface PublishedPageRecord {
+  r2_key: string;
+  html_hash: string;
+  published_at: number;
 }
 
 export interface BlogPost {
