@@ -13,9 +13,18 @@ interface BusinessSelectorProps {
   onSelect: (businessId: number) => void;
 }
 
+interface UserInfoResponse {
+  isAdmin: boolean;
+}
+
+interface BusinessesResponse {
+  businesses: Business[];
+}
+
 export function BusinessSelector({ selectedBusinessId, onSelect }: BusinessSelectorProps) {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -25,14 +34,14 @@ export function BusinessSelector({ selectedBusinessId, onSelect }: BusinessSelec
         // Check if user is admin
         const userRes = await fetch("/api/user-info");
         if (userRes.ok) {
-          const userData = await userRes.json();
+          const userData = await userRes.json() as UserInfoResponse;
           setIsAdmin(userData.isAdmin);
 
           // Load all businesses if admin
           if (userData.isAdmin) {
             const bizRes = await fetch("/api/businesses");
             if (bizRes.ok) {
-              const bizData = await bizRes.json();
+              const bizData = await bizRes.json() as BusinessesResponse;
               setBusinesses(bizData.businesses || []);
             }
           }
@@ -84,12 +93,19 @@ export function BusinessSelector({ selectedBusinessId, onSelect }: BusinessSelec
               <input
                 type="text"
                 placeholder="Search businesses..."
+                value={query}
                 className="w-full px-3 py-2 rounded-lg bg-[#0D0D0F] border border-[#27272a] text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-amber-500/50"
                 onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setQuery(e.target.value)}
               />
             </div>
             <div className="py-1">
-              {businesses.map((business) => (
+              {businesses
+                .filter((business) => {
+                  const normalizedQuery = query.trim().toLowerCase();
+                  return !normalizedQuery || `${business.name} ${business.slug} ${business.categoryName || ""}`.toLowerCase().includes(normalizedQuery);
+                })
+                .map((business) => (
                 <button
                   key={business.id}
                   onClick={() => {
@@ -115,7 +131,10 @@ export function BusinessSelector({ selectedBusinessId, onSelect }: BusinessSelec
                   )}
                 </button>
               ))}
-              {businesses.length === 0 && (
+              {businesses.filter((business) => {
+                const normalizedQuery = query.trim().toLowerCase();
+                return !normalizedQuery || `${business.name} ${business.slug} ${business.categoryName || ""}`.toLowerCase().includes(normalizedQuery);
+              }).length === 0 && (
                 <p className="px-3 py-4 text-sm text-neutral-500 text-center">
                   No businesses found
                 </p>

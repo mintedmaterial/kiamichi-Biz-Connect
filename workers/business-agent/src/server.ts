@@ -12,10 +12,9 @@ import {
   streamText,
   type StreamTextOnFinishCallback,
   stepCountIs,
-  createUIMessageStream,
   convertToModelMessages,
-  createUIMessageStreamResponse,
   pruneMessages,
+  type StreamTextTransform,
   type ToolSet
 } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
@@ -32,6 +31,48 @@ import { getBusinessContextFromSession } from "./utils/session";
 
 // Workers AI model ID - binding provided at request time via Chat class
 const WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct" as const;
+
+/**
+ * Workers AI can emit overlapping text deltas. AI SDK's UI transport expects
+ * true deltas, so normalize cumulative or repeated chunks before they reach
+ * the browser.
+ */
+function dedupeTextDeltas<TOOLS extends ToolSet>(): StreamTextTransform<TOOLS> {
+  return () => {
+    const textById = new Map<string, string>();
+    return new TransformStream({
+      transform(chunk, controller) {
+        if (chunk.type !== "text-delta") {
+          controller.enqueue(chunk);
+          return;
+        }
+
+        const previous = textById.get(chunk.id) || "";
+        const incoming = chunk.text;
+        let delta = incoming;
+
+        if (incoming.startsWith(previous)) {
+          delta = incoming.slice(previous.length);
+        } else if (previous.endsWith(incoming) || incoming === previous) {
+          delta = "";
+        } else {
+          const maxOverlap = Math.min(previous.length, incoming.length);
+          for (let size = maxOverlap; size > 0; size -= 1) {
+            if (previous.endsWith(incoming.slice(0, size))) {
+              delta = incoming.slice(size);
+              break;
+            }
+          }
+        }
+
+        if (delta) {
+          textById.set(chunk.id, previous + delta);
+          controller.enqueue({ ...chunk, text: delta });
+        }
+      }
+    });
+  };
+}
 
 /**
  * Per-user state that persists across sessions
@@ -99,7 +140,6 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
   /** Create Workers AI model using the environment binding */
   private getModel() {
     const workersAI = createWorkersAI({ binding: this.env.AI });
-    // @ts-expect-error -- model not yet in workers-ai-provider type list
     return workersAI(WORKERS_AI_MODEL);
   }
 
@@ -141,6 +181,12 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
   /**
    * Override fetch to check auth on EVERY request (including WebSocket upgrades)
    */
+  private getRequestedBusinessId(request: Request): number | null {
+    const url = new URL(request.url);
+    const match = url.pathname.match(/\/agents\/chat\/business-(\d+)(?:-|\/|$)/);
+    return match ? Number(match[1]) : null;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     console.log(`[DO] Chat DO request: ${request.method} ${url.pathname}`);
@@ -177,9 +223,11 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
 
     // Get business context from session and store in metadata + state
     // This is used by tools to know which business to operate on
-    if (!this.metadata?.businessContext && this.env?.DB) {
+    const requestedBusinessId = this.getRequestedBusinessId(request);
+    const currentBusinessId = this.metadata?.businessContext?.businessId;
+    if (this.env?.DB && (!this.metadata?.businessContext || (requestedBusinessId && currentBusinessId !== requestedBusinessId))) {
       try {
-        const businessContext = await getBusinessContextFromSession(request, this.env.DB);
+        const businessContext = await getBusinessContextFromSession(request, this.env.DB, requestedBusinessId);
         if (businessContext) {
           console.log(`[DO] Setting business context: ${businessContext.businessName} (ID: ${businessContext.businessId})`);
           this.metadata = {
@@ -241,52 +289,29 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
       ...this.mcp.getAITools()
     };
 
-    const stream = createUIMessageStream({
-      execute: async ({ writer }) => {
-        // Clean up incomplete tool calls to prevent API errors
-        const cleanedMessages = cleanupMessages(this.messages);
-
-        // Process any pending tool calls from previous messages
-        // This handles human-in-the-loop confirmations for tools
-        const processedMessages = await processToolCalls({
-          messages: cleanedMessages,
-          dataStream: writer,
-          tools: allTools,
-          executions
-        });
-
-        // Get business context from metadata (passed when agent is instantiated)
-        const businessContext = this.metadata?.businessContext || {};
-
-        // Build dynamic system prompt with user preferences
-        const systemPrompt = this.buildSystemPrompt(businessContext);
-
-        // Prune messages to reduce token usage while preserving context
-        // Keeps recent tool calls and reasoning, prunes older ones
-        const prunedMessages = pruneMessages({
-          messages: await convertToModelMessages(processedMessages),
-          toolCalls: "before-last-2-messages",
-          reasoning: "before-last-message"
-        });
-
-        const result = streamText({
-          system: systemPrompt,
-          messages: prunedMessages,
-          model: this.getModel(),
-          tools: allTools,
-          // Type boundary: streamText expects specific tool types, but base class uses ToolSet
-          // This is safe because our tools satisfy ToolSet interface (verified by 'satisfies' in tools.ts)
-          onFinish: onFinish as unknown as StreamTextOnFinishCallback<
-            typeof allTools
-          >,
-          stopWhen: stepCountIs(10)
-        });
-
-        writer.merge(result.toUIMessageStream());
-      }
+    // AIChatAgent owns tool-result continuations and stream persistence. Returning
+    // the SDK response directly avoids wrapping one UI message stream inside
+    // another, which caused repeated token chunks in the browser.
+    const cleanedMessages = cleanupMessages(this.messages);
+    const businessContext = this.metadata?.businessContext || {};
+    const systemPrompt = this.buildSystemPrompt(businessContext);
+    const prunedMessages = pruneMessages({
+      messages: await convertToModelMessages(cleanedMessages),
+      toolCalls: "before-last-2-messages",
+      reasoning: "before-last-message"
     });
 
-    return createUIMessageStreamResponse({ stream });
+    const result = streamText({
+      system: systemPrompt,
+      messages: prunedMessages,
+      model: this.getModel(),
+      tools: allTools,
+      onFinish: onFinish as unknown as StreamTextOnFinishCallback<typeof allTools>,
+      experimental_transform: dedupeTextDeltas<typeof allTools>(),
+      stopWhen: stepCountIs(10)
+    });
+
+    return result.toUIMessageStreamResponse();
   }
 
   /**
@@ -646,6 +671,16 @@ export default {
       newUrl.pathname = newUrl.pathname.replace("/api/atlas/live", "");
       const newRequest = new Request(newUrl, request);
       return atlasLive.fetch(newRequest);
+    }
+
+    // React Router routes need the client entry document on direct navigation.
+    // Keep agent/API/preview routes on their server handlers above.
+    const spaRoutes = new Set(["/", "/agents", "/listing", "/deployments", "/edits", "/account"]);
+    if (request.method === "GET" && spaRoutes.has(url.pathname)) {
+      const assets = (env as Env & { ASSETS?: Fetcher }).ASSETS;
+      if (assets) {
+        return assets.fetch(new Request(new URL("/", request.url), request));
+      }
     }
 
     // Root path: Let routeAgentRequest handle it (it will serve the frontend)

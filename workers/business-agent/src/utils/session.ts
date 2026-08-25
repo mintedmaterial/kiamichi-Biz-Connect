@@ -56,14 +56,15 @@ export async function verifySession(
 
     // Check if session is expired
     const now = Math.floor(Date.now() / 1000);
-    if (session.expires_at && session.expires_at < now) {
+    const expiresAt = typeof session.expires_at === "number" ? session.expires_at : null;
+    if (expiresAt && expiresAt < now) {
       return null;
     }
 
     return {
       sessionId: session.id as string,
       ownerId: session.user_email as string, // Use email as owner ID
-      expiresAt: session.expires_at as number | null,
+      expiresAt,
       lastActivity: session.last_activity as number | null
     };
   } catch (error) {
@@ -200,7 +201,8 @@ export async function getAllBusinesses(
  */
 export async function getBusinessContextFromSession(
   request: Request,
-  db: D1Database
+  db: D1Database,
+  requestedBusinessId?: number | null
 ): Promise<{
   businessId: number;
   businessName: string;
@@ -220,10 +222,38 @@ export async function getBusinessContextFromSession(
     return null;
   }
 
-  const businesses = await getOwnerBusinesses(sessionInfo.ownerId, db);
-  if (businesses.length === 0) {
-    return null;
+  const adminStatus = await isAdminUser(sessionInfo.ownerId, db);
+  if (requestedBusinessId) {
+    if (adminStatus.isAdmin) {
+      const selected = await db.prepare(`
+        SELECT id, name, slug
+        FROM businesses
+        WHERE id = ? AND is_active = 1
+      `).bind(requestedBusinessId).first<{ id: number; name: string; slug: string }>();
+      if (!selected) return null;
+      return {
+        businessId: selected.id,
+        businessName: selected.name,
+        businessSlug: selected.slug,
+        ownerId: sessionInfo.ownerId,
+        sessionId: sessionInfo.sessionId
+      };
+    }
+
+    const ownedBusinesses = await getOwnerBusinesses(sessionInfo.ownerId, db);
+    const selected = ownedBusinesses.find((business) => business.businessId === requestedBusinessId);
+    if (!selected) return null;
+    return {
+      businessId: selected.businessId,
+      businessName: selected.businessName,
+      businessSlug: selected.businessSlug,
+      ownerId: sessionInfo.ownerId,
+      sessionId: sessionInfo.sessionId
+    };
   }
+
+  const businesses = await getOwnerBusinesses(sessionInfo.ownerId, db);
+  if (businesses.length === 0) return null;
 
   const business = businesses[0];
 

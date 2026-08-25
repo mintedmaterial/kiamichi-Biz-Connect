@@ -14,6 +14,7 @@ import type {
  * Key Features:
  * - Simple {{variable}} interpolation (Workers-compatible, no eval)
  * - {{#if var}}...{{/if}} conditional blocks
+ * - {{#each items}}...{{/each}} array blocks with {{this.field}}
  * - Business data injection ({{business_name}}, {{business_phone}}, etc.)
  * - Content merging (component content overrides default_content)
  * - Scoped CSS injection with data-component attributes
@@ -88,7 +89,24 @@ export class ComponentRenderer {
   ): string {
     let result = template;
 
-    // Handle {{#if var}}...{{/if}} blocks first
+    // Handle {{#each items}}...{{/each}} blocks first. This keeps the
+    // renderer Workers-compatible while supporting the listing templates'
+    // common array shape without eval or a runtime template dependency.
+    result = result.replace(
+      /\{\{#each\s+([\w.]+)\}\}([\s\S]*?)\{\{\/each\}\}/g,
+      (_, path, content) => {
+        const value = this.getValue(path, context);
+        if (!Array.isArray(value)) return "";
+        return value
+          .map((item) => this.interpolate(content, {
+            ...context,
+            this: item
+          }))
+          .join("");
+      }
+    );
+
+    // Handle {{#if var}}...{{/if}} blocks next.
     result = result.replace(
       /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
       (_, varName, content) => {
@@ -102,7 +120,7 @@ export class ComponentRenderer {
     );
 
     // Handle simple {{variable}} replacements
-    result = result.replace(/\{\{(\w+)\}\}/g, (_, varName) => {
+    result = result.replace(/\{\{([\w.]+)\}\}/g, (_, varName) => {
       const value = this.getValue(varName, context);
       return value !== undefined && value !== null ? String(value) : "";
     });

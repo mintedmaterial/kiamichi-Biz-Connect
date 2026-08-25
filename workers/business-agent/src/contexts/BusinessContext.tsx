@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
+import type { ReactNode } from "react";
 
 interface BusinessInfo {
   businessId: number;
@@ -23,6 +24,12 @@ interface BusinessContextType {
   loading: boolean;
   isAdmin: boolean;
   refreshBusiness: () => void;
+  sessionKey: string | null;
+}
+
+interface UserInfoResponse {
+  isAdmin: boolean;
+  sessionKey: string;
 }
 
 const BusinessContext = createContext<BusinessContextType | null>(null);
@@ -32,6 +39,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const [businessInfo, setBusinessInfo] = useState<BusinessInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [sessionKey, setSessionKey] = useState<string | null>(null);
 
   // Load user info on mount
   useEffect(() => {
@@ -39,8 +47,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetch("/api/user-info");
         if (res.ok) {
-          const data = await res.json();
+          const data = await res.json() as UserInfoResponse;
           setIsAdmin(data.isAdmin);
+          setSessionKey(data.sessionKey);
         }
       } catch (error) {
         console.error("Error loading user info:", error);
@@ -49,30 +58,30 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     loadUserInfo();
   }, []);
 
-  // Load initial business (from session or first in list for admin)
+  // Admins choose from the full directory. Owners are limited to their verified businesses.
   useEffect(() => {
     async function loadInitialBusiness() {
       setLoading(true);
       try {
-        // First try to get user's own business
-        const myBizRes = await fetch("/api/my-business");
-        if (myBizRes.ok) {
-          const data = await myBizRes.json();
-          setSelectedBusinessId(data.businessId);
-          setBusinessInfo(data);
-          setLoading(false);
-          return;
-        }
-
-        // If admin with no owned business, load the list and select first
         if (isAdmin) {
           const bizRes = await fetch("/api/businesses");
           if (bizRes.ok) {
-            const data = await bizRes.json();
-            if (data.businesses && data.businesses.length > 0) {
-              setSelectedBusinessId(data.businesses[0].id);
-            }
+            const data = await bizRes.json() as { businesses?: Array<{ id: number }> };
+            const businesses = data.businesses || [];
+            const storedId = Number(sessionStorage.getItem("kbc-selected-business"));
+            const selectedId = businesses.some((business) => business.id === storedId)
+              ? storedId
+              : businesses[0]?.id;
+            if (selectedId) setSelectedBusinessId(selectedId);
           }
+          return;
+        }
+
+        const myBizRes = await fetch("/api/my-business");
+        if (myBizRes.ok) {
+          const data = await myBizRes.json() as BusinessInfo;
+          setSelectedBusinessId(data.businessId);
+          setBusinessInfo(data);
         }
       } catch (error) {
         console.error("Error loading initial business:", error);
@@ -83,6 +92,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
     loadInitialBusiness();
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && selectedBusinessId) {
+      sessionStorage.setItem("kbc-selected-business", String(selectedBusinessId));
+    }
+  }, [isAdmin, selectedBusinessId]);
 
   // Load business info when selection changes
   useEffect(() => {
@@ -100,7 +115,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         
         const res = await fetch(endpoint);
         if (res.ok) {
-          const data = await res.json();
+          const data = await res.json() as BusinessInfo;
           setBusinessInfo(data);
         } else {
           setBusinessInfo(null);
@@ -131,6 +146,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
         businessInfo,
         loading,
         isAdmin,
+        sessionKey,
         refreshBusiness,
       }}
     >

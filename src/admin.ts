@@ -65,7 +65,12 @@ export async function handleAdminPage(request: Request, env: Env): Promise<Respo
   // Save (create or update) business
   if (action === 'save-business' && request.method === 'POST') {
     const businessId = url.searchParams.get('id');
-    return await saveBusiness(request, businessId || undefined, db);
+    return await saveBusiness(request, businessId || undefined, db, env);
+  }
+
+  if (action === 'upload-business-image' && request.method === 'POST') {
+    const businessId = url.searchParams.get('id');
+    return await uploadBusinessImages(request, businessId || undefined, db, env);
   }
 
   // Delete business
@@ -403,6 +408,16 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
             <label class="inline-flex items-center"><input type="checkbox" id="b_active" name="is_active" class="mr-2"> <span class="text-sm font-semibold">Active</span></label>
           </div>
 
+          <div id="businessMediaPanel" class="rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <h3 class="font-bold text-gray-900">Business gallery</h3>
+            <p class="mt-1 text-sm text-gray-600">Upload approved photos or marketing images. They will appear in this listing's public gallery.</p>
+            <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input id="businessMediaFiles" type="file" accept="image/avif,image/gif,image/jpeg,image/png,image/webp" multiple class="block w-full text-sm">
+              <button type="button" id="uploadBusinessMediaBtn" class="rounded bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700">Upload images</button>
+            </div>
+            <p id="businessMediaStatus" class="mt-2 text-sm text-gray-600" role="status"></p>
+          </div>
+
           <!-- Save/Cancel Buttons -->
           <div class="flex justify-end gap-3 pt-4 border-t">
             <button type="button" onclick="window.closeEditor()" class="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-semibold">
@@ -471,6 +486,7 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
                   const v = document.getElementById('b_verified'); if(v) v.checked = data.is_verified==1 || data.is_verified===true;
                   const f = document.getElementById('b_featured'); if(f) f.checked = data.is_featured==1;
                   const a = document.getElementById('b_active'); if(a) a.checked = data.is_active==1;
+                  const mediaPanel = document.getElementById('businessMediaPanel'); if(mediaPanel) mediaPanel.classList.remove('hidden');
                   editor.classList.remove('hidden');
                 } catch (e) {
                   console.error('openEdit error', e);
@@ -479,6 +495,24 @@ async function manageBusinessesPage(db: DatabaseService, page: number = 1, q: st
               }
 
               window.closeEditor = function(){ const ed = document.getElementById('editor'); if(ed) ed.classList.add('hidden'); }
+
+              document.getElementById('uploadBusinessMediaBtn').addEventListener('click', async function(){
+                const id = document.getElementById('b_id').value;
+                const files = document.getElementById('businessMediaFiles').files;
+                const status = document.getElementById('businessMediaStatus');
+                if(!id || !files || !files.length){ status.textContent = 'Save the business first, then choose one or more images.'; return; }
+                const body = new FormData();
+                for(const file of files) body.append('images', file);
+                status.textContent = 'Uploading...';
+                try {
+                  const resp = await fetch('/admin?action=upload-business-image&id='+encodeURIComponent(id), { method: 'POST', body, credentials: 'same-origin' });
+                  const data = await resp.json();
+                  status.textContent = resp.ok ? ('Uploaded '+data.uploaded+' image(s).') : (data.error || 'Upload failed.');
+                  if(resp.ok) document.getElementById('businessMediaFiles').value = '';
+                } catch(error) {
+                  status.textContent = 'Upload failed. Please try again.';
+                }
+              });
 
               window.saveForm = async function(){
                 try {
@@ -753,8 +787,43 @@ async function getBusinessJson(id: string, db: DatabaseService): Promise<Respons
   return Response.json(business);
 }
 
+async function uploadBusinessImages(request: Request, id: string | undefined, db: DatabaseService, env: Env): Promise<Response> {
+  if (!id || !/^\d+$/.test(id)) return Response.json({ error: 'A valid business id is required' }, { status: 400 });
+
+  const business = await db.db.prepare('SELECT id, slug FROM businesses WHERE id = ? AND is_active = 1').bind(Number(id)).first<{ id: number; slug: string }>();
+  if (!business) return Response.json({ error: 'Business not found' }, { status: 404 });
+
+  const form = await request.formData();
+  const entries = form.getAll('images').filter((entry): entry is File => entry instanceof File);
+  if (entries.length === 0) return Response.json({ error: 'Choose at least one image' }, { status: 400 });
+  if (entries.length > 12) return Response.json({ error: 'Upload no more than 12 images at a time' }, { status: 400 });
+
+  const allowedTypes = new Set(['image/avif', 'image/gif', 'image/jpeg', 'image/png', 'image/webp']);
+  const uploaded: string[] = [];
+  for (const file of entries) {
+    if (!allowedTypes.has(file.type)) return Response.json({ error: `Unsupported image type: ${file.type || 'unknown'}` }, { status: 400 });
+    if (file.size > 10 * 1024 * 1024) return Response.json({ error: `${file.name} exceeds the 10 MB limit` }, { status: 400 });
+
+    const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'image';
+    const key = `businesses/${business.slug}/${crypto.randomUUID()}-${safeName}`;
+    await env.BUSINESS_IMAGES.put(key, file.stream(), {
+      httpMetadata: {
+        contentType: file.type,
+        cacheControl: 'public, max-age=86400'
+      },
+      customMetadata: {
+        businessId: String(business.id),
+        uploadedBy: 'admin'
+      }
+    });
+    uploaded.push(key);
+  }
+
+  return Response.json({ success: true, uploaded: uploaded.length, keys: uploaded });
+}
+
 // Save business (create or update). Expects JSON body.
-async function saveBusiness(request: Request, id: string | undefined, db: DatabaseService): Promise<Response> {
+async function saveBusiness(request: Request, id: string | undefined, db: DatabaseService, env: Env): Promise<Response> {
   try {
     const data = await request.json() as any;
     if(id) {
@@ -787,6 +856,7 @@ async function saveBusiness(request: Request, id: string | undefined, db: Databa
         is_active: data.is_active == '1' || data.is_active == 1
       };
       await db.updateBusiness(Number(id), updates);
+      if (updates.is_verified || updates.is_featured) await ensureBusinessFolderMarker(env, String(updates.slug), Number(id));
       return Response.json({ success: true });
     } else {
       // Create with validation
@@ -821,12 +891,24 @@ async function saveBusiness(request: Request, id: string | undefined, db: Databa
         is_active: data.is_active == '1' || data.is_active == 1,
         is_verified: data.is_verified == '1' || data.is_verified == true || data.is_verified == 'on'
       });
+      if (data.is_verified == '1' || data.is_verified == true || data.is_featured == '1' || data.is_featured == 1) {
+        await ensureBusinessFolderMarker(env, slug, businessId);
+      }
       return Response.json({ success: true, id: businessId });
     }
   } catch (err) {
     console.error('Error saving business:', err);
     return Response.json({ error: (err instanceof Error) ? err.message : 'Save failed' }, { status: 500 });
   }
+}
+
+async function ensureBusinessFolderMarker(env: Env, slug: string, businessId: number): Promise<void> {
+  const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!safeSlug) return;
+  await env.BUSINESS_IMAGES.put(`businesses/${safeSlug}/.keep`, new Uint8Array(0), {
+    httpMetadata: { contentType: 'application/octet-stream' },
+    customMetadata: { businessId: String(businessId), purpose: 'eligible-business-folder' }
+  });
 }
 
 // Delete business by id

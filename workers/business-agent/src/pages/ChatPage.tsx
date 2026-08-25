@@ -4,6 +4,7 @@ import { useAgent } from "agents/react";
 import { isStaticToolUIPart } from "ai";
 import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
+import { useBusiness } from "@/contexts/BusinessContext";
 
 // Component imports
 import { Button } from "@/components/button/Button";
@@ -37,9 +38,16 @@ export function ChatPage() {
   const [showAtlasLive, setShowAtlasLive] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState("auto");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { selectedBusinessId, businessInfo, sessionKey } = useBusiness();
+  const [chatSessionKey] = useState(() => {
+    const existing = sessionStorage.getItem("kbc-chat-session");
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    sessionStorage.setItem("kbc-chat-session", created);
+    return created;
+  });
 
   // Preview pane state
-  const [businessId, setBusinessId] = useState<number | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -64,24 +72,6 @@ export function ChatPage() {
     scrollToBottom();
   }, [scrollToBottom]);
 
-  // Load business information on mount
-  useEffect(() => {
-    async function loadBusiness() {
-      try {
-        const response = await fetch("/api/my-business");
-        if (response.ok) {
-          const data = (await response.json()) as { businessId: number; name: string };
-          setBusinessId(data.businessId);
-          console.log("[Chat] Loaded business:", data.name, "ID:", data.businessId);
-        } else {
-          console.warn("[Chat] No business found for this session");
-        }
-      } catch (error) {
-        console.error("[Chat] Error loading business:", error);
-      }
-    }
-    loadBusiness();
-  }, []);
 
   // Preview pane handlers
   const handleRefreshPreview = useCallback(() => {
@@ -98,7 +88,7 @@ export function ChatPage() {
       const response = await fetch("/api/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ createSnapshot }),
+        body: JSON.stringify({ createSnapshot, businessId: selectedBusinessId }),
       });
 
       if (response.ok) {
@@ -127,12 +117,12 @@ export function ChatPage() {
       setIsPublishing(false);
       setShowPublishDialog(false);
     }
-  }, [handleRefreshPreview]);
+  }, [handleRefreshPreview, selectedBusinessId]);
 
   // Initialize agent
   const agent = useAgent({
     agent: "chat",
-    name: "default",
+    name: `business-${selectedBusinessId || "all"}-${sessionKey || "browser"}-${chatSessionKey}`,
   });
 
   const [agentInput, setAgentInput] = useState("");
@@ -161,6 +151,12 @@ export function ChatPage() {
     sendMessage,
     stop,
   } = useAgentChat<unknown, UIMessage<{ createdAt: string }>>({ agent });
+
+  const startNewChat = useCallback(() => {
+    const next = crypto.randomUUID();
+    sessionStorage.setItem("kbc-chat-session", next);
+    window.location.reload();
+  }, []);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -442,7 +438,15 @@ export function ChatPage() {
           </Button>
 
           <Button variant="ghost" size="sm" onClick={clearHistory}>
-            <TrashIcon size={18} />
+            <TrashIcon size={20} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={startNewChat}
+            title="Start a new chat session"
+          >
+            New chat
           </Button>
         </div>
 
@@ -662,7 +666,8 @@ export function ChatPage() {
       {/* Preview pane */}
       <div className={`${showMobilePreview ? "flex" : "hidden"} lg:flex w-full lg:w-1/2 bg-[#0D0D0F] border-l border-[#27272a]`}>
         <PreviewPane
-          businessId={businessId}
+          businessId={selectedBusinessId}
+          liveUrl={businessInfo?.liveUrl}
           previewKey={previewKey}
           onPublish={handlePublishClick}
           onRefresh={handleRefreshPreview}
