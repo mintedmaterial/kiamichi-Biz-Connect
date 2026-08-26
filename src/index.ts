@@ -26,7 +26,7 @@ import {
 import { requireAdminAuth } from './auth/middleware';
 import { runAutomatedDailyBlog } from './workers/blogWorker';
 import { getAuctionStatus } from './auction-service';
-import { createSponsoredAuctionBid, handleSquareWebhook } from './square-auctions';
+import { createSponsoredAuctionBid, handleSquareWebhook, isSquareCheckoutConfigured } from './square-auctions';
 
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -442,7 +442,11 @@ async function handleHomepage(db: DatabaseService, env: Env): Promise<Response> 
     console.warn('Homepage data unavailable; using fallback preview content', error);
   }
 
-  const content = homepageContent({ categories, featured, sponsored, stats, blogPosts });
+  const sponsorTicker = [
+    ...sponsored.map((business) => ({ ...business, kind: 'Sponsored' })),
+    ...featured.map((business) => ({ ...business, kind: 'Featured' }))
+  ].slice(0, 8);
+  const content = homepageContent({ categories, featured, sponsored, sponsorTicker, stats, blogPosts });
   const html = htmlTemplate('Home - Find Local Businesses', content, env);
 
   return new Response(html, {
@@ -2312,6 +2316,9 @@ async function handleAPI(path: string, request: Request, db: DatabaseService, en
   const bidMatch = path.match(/^\/api\/auctions\/([a-z0-9-]+)\/bids$/);
   if (bidMatch && request.method === 'POST') {
     try {
+      if (!isSquareCheckoutConfigured(env)) {
+        return Response.json({ error: 'Auction checkout is not configured yet. Please try again after Square setup is complete.' }, { status: 503 });
+      }
       const data = await request.json() as { business_name?: unknown; contact_email?: unknown; business_location?: unknown; bid_cents?: unknown; bidCents?: unknown };
       const businessName = typeof data.business_name === 'string' ? data.business_name.trim().slice(0, 160) : '';
       const contactEmail = typeof data.contact_email === 'string' ? data.contact_email.trim().toLowerCase().slice(0, 255) : '';

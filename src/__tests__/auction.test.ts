@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decideBid, openingBidCents } from '../auction';
+import { chicagoAuctionDay, chicagoAuctionStart, decideBid, openingBidCents } from '../auction';
 
 describe('sponsored auction rules', () => {
   it('accepts only a strictly higher first-price bid', () => {
@@ -28,5 +28,11 @@ describe('sponsored auction rules', () => {
       { winningBidCents: 10_000, settledAt: now - 90_000 },
       { winningBidCents: 50_000, settledAt: now + 1 }
     ], 500, now)).toBe(500);
+  });
+
+  it('uses the prior Chicago auction day until the 07:00 local reset', () => {
+    const beforeReset = Math.floor(Date.parse('2026-08-27T10:00:00Z') / 1000); // 05:00 CDT
+    const activeStart = chicagoAuctionStart(beforeReset) - 24 * 60 * 60;
+    expect(chicagoAuctionDay(activeStart)).toBe('2026-08-26');
   });
 });

@@ -136,6 +136,7 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
             mask-composite: exclude;
             opacity: 0;
             transition: opacity 0.4s ease;
+            pointer-events: none;
         }
 
         .glow-card:hover {
@@ -218,6 +219,21 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
         .btn-glow:hover {
             box-shadow: 0 6px 30px rgba(237, 84, 9, 0.6);
             transform: translateY(-2px);
+        }
+
+        .sponsor-ticker-track {
+            animation: sponsor-ticker 32s linear infinite;
+            width: max-content;
+        }
+
+        .sponsor-ticker:hover .sponsor-ticker-track,
+        .sponsor-ticker:focus-within .sponsor-ticker-track {
+            animation-play-state: paused;
+        }
+
+        @keyframes sponsor-ticker {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
         }
 
         /* Header Dark */
@@ -324,6 +340,10 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
 
             .bigfoot-wave {
                 transform: none;
+            }
+
+            .sponsor-ticker-track {
+                animation: none;
             }
         }
     </style>
@@ -442,6 +462,25 @@ export const homepageContent = (data: any) => `
             </div>
         </div>
     </section>
+
+    ${data.sponsorTicker?.length ? `
+    <section class="border-y border-[#ED5409]/40 bg-[#130b08] text-white" aria-label="Featured businesses and sponsored placements">
+        <div class="container mx-auto flex min-h-12 items-stretch px-0 sm:px-4">
+            <div class="z-10 flex shrink-0 items-center bg-[#ED5409] px-4 text-xs font-black uppercase tracking-[0.18em] text-white">Local now</div>
+            <div class="sponsor-ticker min-w-0 overflow-hidden" aria-live="off">
+                <div class="sponsor-ticker-track flex items-center gap-8 px-6 py-3 text-sm">
+                    ${[...data.sponsorTicker, ...data.sponsorTicker].map((item: any) => `
+                        <a href="/business/${item.slug}" class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap hover:text-[#FFCB67] focus:outline-none focus:ring-2 focus:ring-[#FFCB67]">
+                            <span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${item.kind === 'Sponsored' ? 'bg-[#ED5409] text-white' : 'bg-[#214E81] text-white'}">${item.kind}</span>
+                            <span class="font-bold">${item.name}</span>
+                            <span class="text-gray-400">${item.city}, ${item.state}</span>
+                        </a>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    </section>
+    ` : ''}
 
     <!-- Sponsored placements -->
     <section class="container mx-auto px-4 pt-12" aria-labelledby="sponsored-heading">
@@ -614,7 +653,7 @@ const auctionTierCard = (title: string, fallback: { placementType: string; floor
                 </div>
             </div>
             <div class="text-sm text-gray-400">
-                Current slot status: ${current.currentBusinessId ? 'Occupied' : 'Open'} · Opening bid ${formatMoney(current.openingBidCents)} · Winner holds for 24 hours unless beaten
+                Current slot status: ${current.currentBusinessId ? 'Occupied' : 'Open'} · Opening bid ${formatMoney(current.openingBidCents)} · A verified winner appears for at least one hour, or until a higher verified bid takes the slot
             </div>
             <form id="${formId}" class="mt-6 space-y-4 rounded-2xl border border-white/10 bg-black/20 p-5">
                 <div>
@@ -637,7 +676,7 @@ const auctionTierCard = (title: string, fallback: { placementType: string; floor
                     </div>
                 </div>
                 <button type="submit" class="w-full rounded-lg bg-[#ED5409] px-5 py-3 font-bold text-white transition hover:bg-[#ff6a1f]">Place bid</button>
-                <p id="${messageId}" class="text-sm text-gray-300" role="status">You are not charged just for submitting a bid. Payment is only completed through Square if you remain the winner and choose to pay.</p>
+                <p id="${messageId}" class="text-sm text-gray-300" role="status">Submitting does not charge you. You will only be charged after continuing to Square checkout. A verified higher bid takes the slot; paid bids are not refunded when displaced.</p>
             </form>
             <script>
                 (() => {
