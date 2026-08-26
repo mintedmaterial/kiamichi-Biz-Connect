@@ -20,12 +20,53 @@ import { generateVIPPost, getVIPBusinessesForPosting, processVIPBusinesses } fro
 // Export BrowserSession Durable Object
 export { BrowserSession } from './browser-session';
 
+function isAuthorizedRequest(request: Request, env: any): boolean {
+  const adminKey = request.headers.get('X-Admin-Key');
+  return Boolean(env.ADMIN_KEY && adminKey && adminKey === env.ADMIN_KEY);
+}
+
+function unauthorizedResponse(): Response {
+  return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function requiresAdminAuth(path: string): boolean {
+  if (path === '/health' || path === '/data-deletion' || path === '/webhooks/facebook') {
+    return false;
+  }
+
+  return path === '/browser-login'
+    || path === '/browser-status'
+    || path === '/refresh-token'
+    || path === '/post'
+    || path === '/trigger-queue'
+    || path === '/test-post'
+    || path === '/post-browser'
+    || path === '/session/status'
+    || path === '/session/login'
+    || path === '/session/logout'
+    || path === '/enrich-facebook'
+    || path === '/run'
+    || path === '/queue/status'
+    || path === '/analytics/summary'
+    || path === '/schedule/preview'
+    || path.startsWith('/featured/')
+    || path.startsWith('/vip/')
+    || path === '/api/facebook/auto-post';
+}
+
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
     try {
+      if (requiresAdminAuth(path) && !isAuthorizedRequest(request, env)) {
+        return unauthorizedResponse();
+      }
+
       if (path === '/health') {
         return new Response(JSON.stringify({
           status: 'healthy',

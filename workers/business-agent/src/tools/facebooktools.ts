@@ -319,10 +319,12 @@ export const facebookToolExecutions = {
       // Trigger the Facebook worker to process the queue immediately
       if (env.FACEBOOK_WORKER) {
         try {
+          const adminKey = (env as typeof env & { ADMIN_KEY?: string }).ADMIN_KEY;
           // Call the scheduled handler to process pending posts
           const triggerResponse = await env.FACEBOOK_WORKER.fetch(
             new Request("https://facebook-worker/trigger-queue", {
-              method: "POST"
+              method: "POST",
+              headers: adminKey ? { "X-Admin-Key": adminKey } : undefined
             })
           );
 
