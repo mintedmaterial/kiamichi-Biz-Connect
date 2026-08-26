@@ -112,14 +112,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          secrets: |
-            ADMIN_KEY
-            GOOGLE_CLIENT_SECRET
-            FACEBOOK_APP_SECRET
-        env:
-          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
 
       - name: Deployment summary
         run: |
@@ -168,12 +160,6 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/business-agent
-          secrets: |
-            GOOGLE_CLIENT_SECRET
-            FACEBOOK_APP_SECRET
-        env:
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
 
       - name: Deployment summary
         run: |
@@ -261,14 +247,6 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/facebook-worker
-          secrets: |
-            FB_EMAIL
-            FB_PASSWORD
-            FACEBOOK_APP_SECRET
-        env:
-          FB_EMAIL: ${{ secrets.FB_EMAIL }}
-          FB_PASSWORD: ${{ secrets.FB_PASSWORD }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
 
       - name: Deployment summary
         run: |
