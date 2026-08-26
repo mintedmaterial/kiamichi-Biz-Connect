@@ -65,16 +65,6 @@ interface SquareBidRow {
   created_at: number;
 }
 
-interface SquareAuctionHourRow {
-  id: number;
-  tier_id: string;
-  auction_day: string;
-  hour_start: number;
-  opening_bid_cents: number;
-  winning_bid_cents: number;
-  winning_business_id: number | null;
-}
-
 interface SquareOrderMetadata {
   bid_id?: string;
   tier_id?: string;
@@ -105,6 +95,10 @@ function squareApiBaseUrl(env: Env): string {
   return env.SQUARE_ENVIRONMENT === 'sandbox'
     ? 'https://connect.squareupsandbox.com'
     : 'https://connect.squareup.com';
+}
+
+export function isSquareCheckoutConfigured(env: Env): boolean {
+  return Boolean(env.SQUARE_ACCESS_TOKEN && env.SQUARE_LOCATION_ID);
 }
 
 function textEncoder(): TextEncoder {
@@ -321,14 +315,6 @@ async function loadBidForWebhook(
   return null;
 }
 
-async function fetchAuctionHour(db: DatabaseService, auctionHourId: number): Promise<SquareAuctionHourRow | null> {
-  return await db.db.prepare(`
-    SELECT id, tier_id, auction_day, hour_start, opening_bid_cents, winning_bid_cents, winning_business_id
-    FROM sponsored_auction_hours
-    WHERE id = ?
-  `).bind(auctionHourId).first<SquareAuctionHourRow>();
-}
-
 async function upsertAuctionWinner(
   db: DatabaseService,
   row: SquareBidRow,
@@ -337,9 +323,8 @@ async function upsertAuctionWinner(
   tier: SponsoredAuctionTier,
   placementType: string
 ): Promise<boolean> {
-  const hour = await fetchAuctionHour(db, row.auction_hour_id);
-  const hourStart = hour?.hour_start ?? now;
-  const endDate = hourStart + 24 * 60 * 60;
+  const startDate = now;
+  const endDate = startDate + 60 * 60;
 
   const current = await db.db.prepare(`
     SELECT winning_bid_cents FROM sponsored_auction_hours WHERE id = ?
@@ -380,7 +365,7 @@ async function upsertAuctionWinner(
       INSERT INTO ad_placements (
         business_id, placement_type, position, start_date, end_date, is_active, price_paid
       ) VALUES (?, ?, ?, ?, ?, 1, ?)
-    `).bind(row.business_id, placementType, null, hourStart, endDate, row.bid_cents / 100),
+    `).bind(row.business_id, placementType, null, startDate, endDate, row.bid_cents / 100),
     db.db.prepare(`
       INSERT INTO auction_bid_events (bid_id, event_type, amount_cents, provider_event_id)
       VALUES (?, 'payment_completed', ?, ?)
@@ -402,6 +387,12 @@ export async function createSponsoredAuctionBid(
   env: Env,
   input: SquareAuctionBidRequest
 ): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (!isSquareCheckoutConfigured(env)) {
+    return {
+      status: 503,
+      body: { error: 'Auction checkout is not configured yet. Please try again after Square setup is complete.' }
+    };
+  }
   const tier = await db.db.prepare(`
     SELECT id, label, placement_type, floor_cents, is_active
     FROM sponsored_auction_tiers

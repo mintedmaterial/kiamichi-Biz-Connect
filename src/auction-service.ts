@@ -23,9 +23,11 @@ export async function getAuctionStatus(
   `).bind(tierId).first<SponsoredAuctionTier>();
   if (!tier) return null;
 
-  const currentHour = chicagoAuctionStart(now);
   const todayStart = chicagoAuctionStart(now);
-  const auctionDay = chicagoAuctionDay(now < todayStart ? todayStart - 24 * 60 * 60 : todayStart);
+  // The 07:00 Chicago reset defines both the active 24-hour window and its
+  // stable auction-day key. Before 07:00, that window started yesterday.
+  const currentHour = now < todayStart ? todayStart - 24 * 60 * 60 : todayStart;
+  const auctionDay = chicagoAuctionDay(currentHour);
   const current = await db.prepare(`
     SELECT hour_start, opening_bid_cents, winning_bid_cents, winning_business_id
     FROM sponsored_auction_hours
