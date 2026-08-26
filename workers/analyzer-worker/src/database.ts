@@ -4,6 +4,31 @@
 
 import { Business, Env, EnrichmentSuggestion } from './types';
 
+const AUTO_UPDATEABLE_FIELDS = {
+  description: 'description',
+  phone: 'phone',
+  email: 'email',
+  website: 'website',
+  address_line1: 'address_line1',
+  address_line2: 'address_line2',
+  city: 'city',
+  state: 'state',
+  zip_code: 'zip_code',
+  latitude: 'latitude',
+  longitude: 'longitude',
+  image_url: 'image_url',
+  facebook_url: 'facebook_url',
+  hours: 'hours',
+} as const;
+
+type AutoUpdateableField = keyof typeof AUTO_UPDATEABLE_FIELDS;
+
+function getAutoUpdateableColumn(field: string): AutoUpdateableField | null {
+  return field in AUTO_UPDATEABLE_FIELDS
+    ? (field as AutoUpdateableField)
+    : null;
+}
+
 /**
  * Get business by ID
  */
@@ -45,10 +70,19 @@ export async function applyAutoUpdates(
   // Begin transaction
   for (const suggestion of suggestionsToApply) {
     try {
+      const column = getAutoUpdateableColumn(suggestion.field);
+
+      if (!column) {
+        console.warn(
+          `Skipping auto-update for unsupported field ${suggestion.field} on business ${businessId}`,
+        );
+        continue;
+      }
+
       // Update the business record
       await env.DB.prepare(`
         UPDATE businesses
-        SET ${suggestion.field} = ?,
+        SET ${AUTO_UPDATEABLE_FIELDS[column]} = ?,
             updated_at = unixepoch()
         WHERE id = ?
       `).bind(suggestion.suggestedValue, businessId).run();
