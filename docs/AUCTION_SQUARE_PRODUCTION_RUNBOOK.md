@@ -24,6 +24,10 @@ The checked-in Worker configuration uses `SQUARE_ENVIRONMENT = "production"` and
 
 In Square, register that exact HTTPS notification URL and subscribe to `payment.updated`. Do not activate ads from checkout redirects.
 
+## Worker secret deployment rule
+
+Production deployments preserve the secrets already configured on each Worker. GitHub Actions must not bulk-upload secrets during every deploy: versioned Workers reject that mutation when the latest version is not deployed, which can prevent an otherwise valid release. Rotate or add a secret through Cloudflare's secure Worker-secret prompt, then deploy the reviewed release. Never put a secret value in the repository, workflow, PR, or logs.
+
 ## Pre-deploy verification
 
 1. Apply the existing `migrations/010_sponsored_auctions.sql` only after checking the remote schema; this production database already has the relevant auction tables.
