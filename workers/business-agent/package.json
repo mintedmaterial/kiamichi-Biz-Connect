@@ -5,10 +5,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node scripts/fix-wrangler-config.mjs",
     "dev": "vite dev",
     "start": "vite dev",
-    "deploy": "vite build && node scripts/fix-wrangler-config.mjs && wrangler deploy",
+    "deploy": "npm run build && wrangler deploy",
     "test": "vitest",
     "test:unit": "vitest --config vitest.unit.config.ts",
     "types": "wrangler types env.d.ts --include-runtime false",
