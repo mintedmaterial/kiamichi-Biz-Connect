@@ -28,9 +28,12 @@ import {
 import { handlePreview } from "./routes/preview";
 import { handleMyBusiness, handlePublish, handleUserInfo, handleBusinesses, handleBusinessById } from "./routes/api";
 import { getBusinessContextFromSession } from "./utils/session";
+import { installExpectedDisconnectLogging } from "./observability";
 
 // Workers AI model ID - binding provided at request time via Chat class
 const WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct" as const;
+
+installExpectedDisconnectLogging();
 
 /**
  * Workers AI can emit overlapping text deltas. AI SDK's UI transport expects

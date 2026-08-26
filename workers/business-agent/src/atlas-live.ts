@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { logWebSocketClose } from "./observability";
 
 export interface AtlasEvent {
   id: string;
@@ -217,6 +218,7 @@ export class AtlasLive extends DurableObject<Env> {
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+    logWebSocketClose('Atlas', { code, reason, wasClean });
     this.sessions.delete(ws);
   }
 

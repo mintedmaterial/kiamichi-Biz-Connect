@@ -7,6 +7,7 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
+import { logExpectedDisconnect, logWebSocketClose } from "./observability";
 
 interface VoiceSession {
   websocket: WebSocket;
@@ -89,8 +90,13 @@ export class VoiceAgent extends DurableObject {
         }
       });
 
-      server.addEventListener("close", () => {
-        console.log(`[Voice] Session ${sessionId} closed`);
+      server.addEventListener("close", (event) => {
+        logWebSocketClose("Voice", {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          extra: { sessionId }
+        });
         this.sessions.delete(sessionId);
       });
 
@@ -337,7 +343,12 @@ export class VoiceAgent extends DurableObject {
       });
 
       sttWs.addEventListener("close", (event) => {
-        console.log(`[Voice] Deepgram WebSocket closed for session ${sessionId}, code: ${event.code}, reason: ${event.reason}`);
+        logWebSocketClose("Voice/Deepgram", {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          extra: { sessionId }
+        });
         if (keepAliveInterval) {
           clearInterval(keepAliveInterval);
           keepAliveInterval = null;
@@ -557,7 +568,11 @@ export class VoiceAgent extends DurableObject {
       return result.text || "I'm sorry, I couldn't process that request.";
 
     } catch (error) {
-      console.error("[Voice] Chat agent error:", error);
+      if (error instanceof Error && /responseStreamDisconnected|canceled|client disconnect/i.test(error.message)) {
+        logExpectedDisconnect("Voice", "Chat agent stream disconnected", { message: error.message });
+      } else {
+        console.error("[Voice] Chat agent error:", error);
+      }
       return "I'm experiencing technical difficulties. Please try again.";
     }
   }
