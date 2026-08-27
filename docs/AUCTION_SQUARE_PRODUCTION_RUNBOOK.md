@@ -10,6 +10,20 @@
 - The daily auction key switches at **07:00 America/Chicago**, including the midnight-to-07:00 window.
 - A verified bid is displayed for at least **one hour**. A later, higher verified bid replaces the placement immediately; displaced paid bids are **not refunded**.
 
+## Square setup
+
+## Sandbox acceptance before production
+
+The reviewed Worker configuration currently uses `SQUARE_ENVIRONMENT = "sandbox"` so the public auction form creates only Square Sandbox checkout links. Enter these **Sandbox application** values through Cloudflare's secure Worker-secret prompts, never through Git or chat:
+
+- `SQUARE_ACCESS_TOKEN`
+- `SQUARE_LOCATION_ID`
+- `SQUARE_WEBHOOK_SIGNATURE_KEY`
+
+In the Square Developer Console for that same Sandbox application, create a webhook subscription for `payment.updated` at `https://kiamichibizconnect.com/api/webhooks/square`, then copy its signature key into the matching Worker secret. The endpoint must be HTTPS and publicly reachable. Complete a Sandbox checkout from `/advertise`, then verify the signed webhook creates the paid placement before moving to production credentials.
+
+When the Sandbox acceptance is complete, use a separate reviewed release to switch `SQUARE_ENVIRONMENT` to `production` and replace all three secrets with values from the production Square application. Do not mix Sandbox and production values.
+
 ## Production Square setup
 
 Enter these values only through Cloudflare's secret prompts for the `kiamichi-biz-connect` Worker:
