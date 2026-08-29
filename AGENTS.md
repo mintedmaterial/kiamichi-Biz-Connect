@@ -2,167 +2,162 @@
 
 AI coding agents working in this repository should follow these rules.
 
-## Project Overview
+## Project snapshot
 
-Local business directory platform for Southeast Oklahoma, Northeast Texas, and Southwest Arkansas. Full-stack Cloudflare Workers app with business listings, search, blog, and ad placement.
+- Local business directory platform for Southeast Oklahoma, Northeast Texas, and Southwest Arkansas.
+- Cloudflare Workers monorepo: one root worker plus deployable satellite workers under `workers/`.
+- Root worker serves the public site, admin UI, OAuth, search, blog, sitemap, and the daily cron.
+- Satellite workers handle enrichment, Facebook automation, owner portal/chat, business discovery, and independent verification.
 
-**Live Site:** https://kiamichibizconnect.com  
-**Worker:** kiamichi-biz-connect
+## Current worker inventory
 
-## Tech Stack
+| Worker | Entry point | Config | Purpose | Deploy script |
+|--------|-------------|--------|---------|---------------|
+| Main site | `src/index.ts` | `wrangler.toml` | Public site, admin UI, OAuth, search, blog, cron | `npm run deploy` |
+| Analyzer | `workers/analyzer-worker/src/index.ts` | `workers/analyzer-worker/wrangler.toml` | AI business enrichment and completeness scoring | `npm run deploy:analyzer` |
+| Facebook | `workers/facebook-worker/src/index.ts` | `workers/facebook-worker/wrangler.toml` | Facebook posting, token refresh, analytics, browser automation | `npm run deploy:facebook` |
+| Business agent | `workers/business-agent/src/server.ts` | `workers/business-agent/wrangler.jsonc` | Owner portal, AI chat, preview/publish, voice, Atlas live view | `npm run deploy:business` |
+| Discovery | `workers/discovery-worker/src/index.ts` | `workers/discovery-worker/wrangler.toml` | Daily business discovery workflow and verification queue | `npm run deploy:discovery` |
+| Verifier | `workers/verifier-agent/src/index.ts` | `workers/verifier-agent/wrangler.toml` | Independent candidate verification | `npm run deploy:verifier` |
 
-- **Runtime:** Cloudflare Workers
-- **Database:** D1 (SQLite)
-- **Storage:** R2 (multiple buckets for different asset types)
-- **Cache:** Workers KV
-- **AI:** Workers AI (blog generation, content)
-- **Frontend:** TailwindCSS, vanilla JS
-- **Language:** TypeScript
+## Canonical docs
 
-## Project Structure
+Keep these docs aligned when workers, routes, bindings, or cron jobs change:
 
+- `AGENTS.md`
+- `WORKER_ARCHITECTURE.md`
+- `README.md`
+- `.planning/codebase/WORKERS.md`
+- `.planning/codebase/ARCHITECTURE.md`
+- `.planning/codebase/STRUCTURE.md`
+
+## Tech stack
+
+- Runtime: Cloudflare Workers
+- Database: D1 (SQLite)
+- Storage: R2
+- Cache: Workers KV
+- AI: Workers AI
+- Frontend: TailwindCSS + vanilla JS in the root worker; React + Vite in `workers/business-agent`
+- Language: TypeScript
+
+## Project structure
+
+```text
+├── src/                     # Main worker source
+├── workers/                 # Deployable satellite workers
+├── migrations/              # D1 schema migrations
+├── schema.sql               # Main database schema
+├── seed.sql                 # Seed data
+├── wrangler.toml            # Root Cloudflare config
+├── docs/                    # Architecture and operator docs
+├── plans/                   # Planning notes and roadmaps
+└── .github/workflows/       # CI/CD
 ```
-├── src/
-│   ├── index.ts              # Main worker entry
-│   ├── routes/               # API route handlers
-│   ├── templates/            # HTML templates
-│   └── lib/                  # Shared utilities
-├── workers/                  # Additional workers (if any)
-├── migrations/               # D1 schema migrations
-├── schema.sql                # Main database schema
-├── seed-components.sql       # Component templates
-├── wrangler.toml             # Cloudflare config
-├── docs/                     # Architecture docs
-└── .github/workflows/        # CI/CD
-```
-
-## Do
-
-- Use D1 prepared statements (never raw SQL interpolation)
-- Store images in appropriate R2 bucket:
-  - `IMAGES` — AI-generated content
-  - `BUSINESS_IMAGES` — User uploads
-  - `BUSINESS_ASSETS` — Static HTML pages
-- Use KV (`CACHE`) for frequently accessed data
-- Follow existing route patterns in `src/routes/`
-- Use TailwindCSS utility classes
-- Return proper HTTP status codes
-
-## Don't
-
-- Don't hardcode database IDs or secrets
-- Don't bypass D1 for data storage
-- Don't store PII in logs
-- Don't add heavy frontend frameworks (keep it light)
-- Don't commit `.dev.vars` or real tokens
-- Don't use `any` types — define interfaces
 
 ## Commands
 
 ```bash
-# Local development
+# Root worker local dev
 npm run dev
 
-# Type check
-npx tsc --noEmit
-
-# Deploy
+# Root worker deploy
 npm run deploy
-# or
-npx wrangler deploy
 
-# D1 Operations
-npx wrangler d1 execute kiamichi-biz-connect-db --local --file=./schema.sql
-npx wrangler d1 execute kiamichi-biz-connect-db --remote --file=./migrations/v2.sql
-npx wrangler d1 execute kiamichi-biz-connect-db --remote --command="SELECT * FROM businesses LIMIT 5"
+# Deploy everything currently scripted from the repo root
+npm run deploy:all
 
-# R2 Operations
-npx wrangler r2 object put kiamichi-biz-images/path/file.jpg --file=./local.jpg
-npx wrangler r2 object list kiamichi-biz-images
+# Deploy individual workers
+npm run deploy:analyzer
+npm run deploy:facebook
+npm run deploy:business
+npm run deploy:discovery
+npm run deploy:verifier
+
+# Root worker uses the business-agent build for its build script
+npm run build
 ```
 
-## Safety & Permissions
+Worker-local commands:
+
+```bash
+cd workers/analyzer-worker && npm run dev && npm run deploy && npm run typecheck
+cd workers/facebook-worker && npm run dev && npm run deploy
+cd workers/business-agent && npm run dev && npm run build && npm run deploy && npm run check
+cd workers/discovery-worker && npm run dev && npm run deploy && npm run typecheck
+cd workers/verifier-agent && npm run dev && npm run deploy && npm run typecheck
+```
+
+## Data and bindings
+
+### Shared data surfaces
+
+- D1 database: `kiamichi-biz-connect-db`
+- KV namespace: `CACHE`
+- R2 buckets:
+  - `IMAGES` → `kiamichi-biz-images`
+  - `BUSINESS_IMAGES` → `kiamichi-business-images`
+  - `BUSINESS_ASSETS` → `kiamichi-business-assets`
+  - `TEMPLATES` → `kiamichi-component-templates`
+- Root worker also binds `AI`, `FLAGS`, and the `ANALYZER` service binding.
+
+### Satellite-worker notes
+
+- `workers/business-agent/wrangler.jsonc` also binds `RAG_AGENT` and `FACEBOOK_WORKER`, plus Durable Objects `Chat`, `VoiceAgent`, and `AtlasLive`.
+- `workers/facebook-worker/wrangler.toml` also binds `BROWSER` and `BROWSER_SESSION`.
+- `workers/discovery-worker/wrangler.toml` also binds queue/workflow plumbing and the `VERIFIER` service binding.
+- `workers/verifier-agent/wrangler.toml` is AI-driven and expects `VERIFIER_SHARED_SECRET`.
+
+## Do
+
+- Use D1 prepared statements; never interpolate raw SQL.
+- Keep worker responsibilities narrow and explicit.
+- Update the worker inventory and architecture docs in the same diff as any worker change.
+- Keep route, queue, workflow, cron, and binding names in docs synchronized with `wrangler` config.
+- Store images in the correct R2 bucket.
+- Use `CACHE` for short-lived shared data where the repo already does.
+- Use existing route patterns and helper modules before adding new ones.
+- Return proper HTTP status codes.
+
+## Don't
+
+- Don't hardcode database IDs or secrets.
+- Don't bypass D1 for persistent data.
+- Don't store PII in logs.
+- Don't add heavy frontend frameworks to the root worker.
+- Don't commit `.dev.vars` or real tokens.
+- Don't use `any` types when a concrete interface will do.
+
+## Safety & permissions
 
 **Allowed without asking:**
 - Read/list files
-- Type check
-- Local dev server
+- Type checks
+- Local dev servers
 - D1 SELECT queries
 
 **Ask first:**
-- npm install (new dependencies)
-- wrangler deploy (production)
-- D1 schema changes (migrations)
+- `npm install` for new dependencies
+- `wrangler deploy` to production
+- D1 schema changes / migrations
 - R2 bucket operations
-- git push
+- `git push`
 - Modifying business submission flow
 
-## Database Schema
+## Documentation pointers
 
-Key tables in D1 (`kiamichi-biz-connect-db`):
+- `README.md` — entry-point overview
+- `WORKER_ARCHITECTURE.md` — current worker and binding map
+- `docs/11-bigfoot-kbc-agent.md` — Bigfoot cron prompts and delivery rules
+- `.planning/codebase/WORKERS.md` — planning-time worker inventory
+- `.planning/codebase/ARCHITECTURE.md` — current architecture map
+- `.planning/codebase/STRUCTURE.md` — repo layout map
 
-- `businesses` — Business listings with contact, hours, description
-- `categories` — Service categories (Hair Salons, Home Builders, etc.)
-- `cities` — Service area cities
-- `reviews` — Customer reviews
-- `ads` — Premium ad placements
-- `blog_posts` — Business spotlights
+## PR checklist
 
-See `schema.sql` for full schema.
-
-## R2 Buckets
-
-| Binding | Bucket | Purpose |
-|---------|--------|---------|
-| `IMAGES` | kiamichi-biz-images | AI-generated images |
-| `BUSINESS_IMAGES` | kiamichi-business-images | User uploads |
-| `BUSINESS_ASSETS` | kiamichi-business-assets | Static HTML |
-
-## API Conventions
-
-```typescript
-// Route pattern
-app.get('/api/businesses', async (c) => {
-  const db = c.env.DB
-  const result = await db.prepare('SELECT * FROM businesses WHERE active = 1').all()
-  return c.json(result.results)
-})
-
-// Error handling
-app.onError((err, c) => {
-  console.error('Error:', err.message)
-  return c.json({ error: err.message }, 500)
-})
-```
-
-## Good Examples
-
-- **Route structure:** `src/index.ts`
-- **D1 queries:** `src/routes/businesses.ts` (if exists)
-- **Template rendering:** `src/templates/`
-- **Form handling:** Business submission flow
-
-## Documentation
-
-Existing docs to reference:
-- `QUICK_REFERENCE.md` — Common operations
-- `WORKER_ARCHITECTURE.md` — System design
-- `TESTING_GUIDE.md` — How to test
-- `CI_CD_SETUP.md` — GitHub Actions
-- `docs/11-bigfoot-kbc-agent.md` — Bigfoot KBC cron prompts, workdir, and `#KBC` delivery rules
-
-## When Stuck
-
-- Check existing patterns in `src/`
-- Review D1 docs: https://developers.cloudflare.com/d1/
-- Ask before modifying core flows (search, submission, payments)
-- Don't guess at business logic
-
-## PR Checklist
-
-- [ ] TypeScript compiles (`npm run build`)
+- [ ] TypeScript compiles for the touched worker(s)
 - [ ] No hardcoded secrets
-- [ ] D1 migrations are versioned (`migrations/vN.sql`)
-- [ ] Tested locally with `npm run dev`
+- [ ] D1 migrations are versioned when schema changes
+- [ ] Tested locally with the relevant `npm run dev`
 - [ ] Small, focused diff
-- [ ] Brief summary of changes
+- [ ] Docs updated when worker/binding/cron behavior changes

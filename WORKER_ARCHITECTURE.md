@@ -1,195 +1,129 @@
-# Worker Architecture Explanation
+# Worker Architecture
 
-## Directory Structure
+## Overview
 
-Your project uses **TWO DIFFERENT PATTERNS** for workers - this is normal and correct:
+KiamichiBizConnect is a Cloudflare Workers monorepo with one root worker and five deployable satellite workers.
 
-### Pattern 1: Main Worker (`src/`)
-```
-src/
-├── index.ts              # Main entry point (deployed as "kiamichi-biz-connect")
-├── admin.ts              # Admin panel logic
-├── database.ts           # Database helpers
-├── templates.ts          # HTML templates
-├── types.ts              # TypeScript interfaces
-└── workers/              # ⚠️ NOT separate workers - just helper modules
-    ├── blogWorker.ts     # Blog generation helpers (imported by index.ts)
-    └── facebookWorker.ts # Facebook helpers (imported by index.ts)
-```
+- The root worker lives at `src/index.ts` and serves the public site, admin UI, OAuth, search, blog, sitemap, and the daily cron.
+- Files under `src/workers/` are helper modules imported by the root worker. They are **not** separate Cloudflare Workers.
+- Deployable worker projects live under `workers/` and each has its own config and deploy script.
 
-**What this means:**
-- `src/index.ts` is the **main worker** deployed to `kiamichibizconnect.com`
-- `src/workers/` contains **helper functions**, NOT separate Cloudflare Workers
-- These helpers are imported and used within `src/index.ts`
-- There's only ONE `wrangler.toml` at the root controlling this
+## Current worker map
 
-### Pattern 2: Separate Workers (`workers/`)
-```
-workers/
-├── facebook-worker/
-│   ├── src/
-│   │   └── index.ts           # Separate worker entry point
-│   ├── wrangler.toml          # Its own configuration
-│   └── package.json           # Its own dependencies
-└── analyzer-worker/
-    ├── src/
-    │   ├── index.ts           # Separate worker entry point
-    │   ├── types.ts           # Its own types
-    │   ├── analyzer.ts        # AI analysis logic
-    │   ├── webTools.ts        # Web scraping
-    │   └── database.ts        # Database operations
-    ├── wrangler.toml          # Its own configuration
-    ├── package.json           # Its own dependencies
-    └── tsconfig.json          # TypeScript config
-```
+| Worker | Entry point | Config | Purpose | Triggers / notable bindings | Deploy |
+|--------|-------------|--------|---------|-----------------------------|--------|
+| Main site | `src/index.ts` | `wrangler.toml` | Public site, admin UI, OAuth, search, blog, sitemap, daily automation | Route: `kiamichibizconnect.com/*` and `www.kiamichibizconnect.com/*`; cron at `15 14 * * *`; bindings: `DB`, `CACHE`, `IMAGES`, `BUSINESS_IMAGES`, `BUSINESS_ASSETS`, `TEMPLATES`, `AI`, `FLAGS`, `ANALYZER` | `npm run deploy` |
+| Analyzer | `workers/analyzer-worker/src/index.ts` | `workers/analyzer-worker/wrangler.toml` | AI enrichment and completeness scoring for business listings | Cron at `0 14 * * *`, `0 20 * * *`, `0 2 * * *`; bindings: `DB`, `AI`, `IMAGES`, `CACHE`; env: `MAIN_WORKER_URL`, `ANALYZER_VERSION`, `MAX_AUTO_UPDATES_PER_DAY`, `AUTO_APPLY_CONFIDENCE_THRESHOLD`, `USE_CODE_MODE` | `npm run deploy:analyzer` |
+| Facebook | `workers/facebook-worker/src/index.ts` | `workers/facebook-worker/wrangler.toml` | Facebook page/group posting, token refresh, analytics, featured rotation, browser automation | Cron at `0 0 * * *`, `0 2,14 * * *`, `0 3,15,22 * * *`; bindings: `DB`, `CACHE`, `IMAGES`, `AI`, `BROWSER`, `BROWSER_SESSION` | `npm run deploy:facebook` |
+| Business agent | `workers/business-agent/src/server.ts` | `workers/business-agent/wrangler.jsonc` | Owner portal, AI chat, preview/publish, voice, Atlas live view | Route: `app.kiamichibizconnect.com/*`; bindings: `DB`, `CACHE`, `AI`, `TEMPLATES`, `BUSINESS_ASSETS`, `IMAGES`, `BUSINESS_IMAGES`, `ANALYZER`, `RAG_AGENT`, `FACEBOOK_WORKER`; Durable Objects: `Chat`, `VoiceAgent`, `AtlasLive` | `npm run deploy:business` |
+| Discovery | `workers/discovery-worker/src/index.ts` | `workers/discovery-worker/wrangler.toml` | Daily business discovery workflow and verification queue | Cron at `0 14 * * *`; bindings: `DB`, `CACHE`, `AI`, `DISCOVERY_QUEUE`, `DISCOVERY_WORKFLOW`, `VERIFICATION_WORKFLOW`, `VERIFIER` | `npm run deploy:discovery` |
+| Verifier | `workers/verifier-agent/src/index.ts` | `workers/verifier-agent/wrangler.toml` | Independent verification of candidate businesses and enrichments | Binding: `AI`; expects `VERIFIER_SHARED_SECRET`; HTTP `/health` and `/verify` | `npm run deploy:verifier` |
 
-**What this means:**
-- Each subdirectory in `workers/` is a **completely separate Cloudflare Worker**
-- Each has its own `wrangler.toml`, `package.json`, and deployment
-- Each is deployed independently with `wrangler deploy`
-- They communicate with the main worker via **Service Bindings**
+## Worker responsibilities
 
-## How Multiple wrangler.toml Files Work
+### Main worker
 
-### Main Worker (`wrangler.toml` at root)
-```toml
-name = "kiamichi-biz-connect"
-main = "src/index.ts"
-routes = ["kiamichibizconnect.com/*"]
+The root worker owns the public surface area:
 
-# Service bindings connect to other workers
-[[services]]
-binding = "ANALYZER"
-service = "kiamichi-biz-ai-analyzer"
-```
+- homepage and category/business pages
+- admin UI and OAuth callbacks
+- search and sitemap routes
+- daily blog automation
+- shared storage access through D1, KV, R2, Workers AI, and feature flags
 
-This deploys ONE worker from `src/index.ts` to your domain.
+### Analyzer worker
 
-### Analyzer Worker (`workers/analyzer-worker/wrangler.toml`)
-```toml
-name = "kiamichi-biz-ai-analyzer"
-main = "src/index.ts"
+The analyzer worker handles AI-assisted enrichment of business listings.
 
-# Cron schedule for autonomous runs
-[triggers]
-crons = ["0 14 * * *", "0 20 * * *", "0 2 * * *"]
-```
+- manual analyze requests via `/analyze`
+- cron-driven enrichment passes
+- auto-apply of high-confidence updates
+- shared D1/R2/KV access with the root worker
 
-This deploys a SECOND worker that:
-- Runs independently on its own URL
-- Has its own cron triggers
-- Is called by the main worker via service binding
+### Facebook worker
 
-### Facebook Worker (`workers/facebook-worker/wrangler.toml`)
-```toml
-name = "kiamichi-biz-facebook-worker"
-main = "src/index.ts"
-```
+The Facebook worker owns Facebook automation.
 
-This deploys a THIRD worker for Facebook operations.
+- scheduled page/group posting
+- token refresh and analytics collection
+- featured business rotation
+- browser-based fallback flows through the browser binding and Durable Object session
 
-## How They Work Together
+### Business agent
 
-```
-┌─────────────────────────────────────────┐
-│   Main Worker (kiamichi-biz-connect)    │
-│   URL: kiamichibizconnect.com           │
-│   Code: src/index.ts                    │
-├─────────────────────────────────────────┤
-│                                         │
-│  ┌────────────────────────────────┐    │
-│  │ env.ANALYZER.fetch()           │─────┼──────> Analyzer Worker
-│  │ (service binding)              │    │        (kiamichi-biz-ai-analyzer)
-│  └────────────────────────────────┘    │        Cron: 3x daily
-│                                         │
-│  Uses helpers from src/workers/        │
-│  - blogWorker.ts (not a worker!)       │
-│  - facebookWorker.ts (not a worker!)   │
-│                                         │
-└─────────────────────────────────────────┘
-```
+The business agent is the owner portal.
 
-## Deployment Process
+- chat-driven content editing and publishing
+- preview rendering and static page publishing to R2
+- voice/Atlas live view features
+- service-bound calls to analyzer, RAG, and Facebook worker services
 
-### Deploy Main Worker
-```bash
-# From project root
-npx wrangler deploy
-```
+### Discovery worker
 
-This reads `wrangler.toml` and deploys `src/index.ts` to your domain.
+The discovery worker handles the discovery pipeline.
 
-### Deploy Analyzer Worker
-```bash
-# From workers/analyzer-worker/
-cd workers/analyzer-worker
-npx wrangler deploy
-```
+- scheduled discovery runs
+- queue-backed handoff into verification workflows
+- separate verification workflow orchestration
+- service binding to the verifier worker
 
-This reads `workers/analyzer-worker/wrangler.toml` and deploys that worker separately.
+### Verifier agent
 
-### Deploy Facebook Worker
-```bash
-# From workers/facebook-worker/
-cd workers/facebook-worker
-npx wrangler deploy
-```
+The verifier agent performs the last-check evaluation.
 
-## Service Bindings (How Workers Talk)
+- independent validation of candidate businesses
+- AI-based verdicts with approve/review/reject outcomes
+- shared-secret protection on `/verify`
 
-The main worker can call other workers **without HTTP** using service bindings:
+## Shared storage and bindings
 
-```typescript
-// In src/index.ts (main worker)
-const response = await env.ANALYZER.fetch('https://analyzer/analyze', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ businessId: 123, mode: 'manual' })
-});
-```
+### Shared across the repo
 
-This is **MUCH faster** than HTTP because it:
-- Runs on Cloudflare's internal network
-- No DNS lookup needed
-- No TLS handshake
-- Sub-millisecond latency
+- D1: `kiamichi-biz-connect-db`
+- KV: `CACHE`
+- R2 buckets:
+  - `IMAGES` → `kiamichi-biz-images`
+  - `BUSINESS_IMAGES` → `kiamichi-business-images`
+  - `BUSINESS_ASSETS` → `kiamichi-business-assets`
+  - `TEMPLATES` → `kiamichi-component-templates`
 
-## Why This Pattern?
+### Main-worker service binding
 
-### Benefits of Separate Workers:
-1. **Isolation**: Analyzer has its own CPU limits and doesn't affect main app
-2. **Cron Triggers**: Analyzer runs on schedule independently
-3. **Independent Scaling**: Each worker scales separately
-4. **Code Organization**: Clear separation of concerns
-5. **Independent Deployment**: Can deploy analyzer without touching main app
+- `ANALYZER` → `kiamichi-biz-ai-analyzer`
 
-### When to Use Helper Modules (src/workers/) vs Separate Workers (workers/):
+### Business-agent service bindings
 
-**Use Helper Modules (`src/workers/`) when:**
-- Logic is tightly coupled to main app
-- No need for separate cron triggers
-- Sharing same execution context is fine
-- Example: Template rendering, utility functions
+- `ANALYZER` → `kiamichi-biz-ai-analyzer`
+- `RAG_AGENT` → `purple-snow-f107-nlweb`
+- `FACEBOOK_WORKER` → `kiamichi-facebook-worker`
 
-**Use Separate Workers (`workers/`) when:**
-- Need independent cron schedule
-- CPU-intensive tasks that shouldn't block main app
-- Want to deploy separately
-- Different teams maintain different workers
-- Example: Background jobs, AI analysis, data processing
+### Discovery-worker service / workflow plumbing
 
-## Summary
+- `VERIFIER` → `kiamichi-biz-verifier`
+- `DISCOVERY_QUEUE` → `kiamichi-business-discovery`
+- `DISCOVERY_WORKFLOW` → `kiamichi-daily-business-discovery`
+- `VERIFICATION_WORKFLOW` → `kiamichi-business-verification`
 
-✅ **CORRECT**: You have both patterns, and this is intentional
-- `src/workers/` = Helper modules imported by main worker
-- `workers/` = Completely separate Cloudflare Workers
+### Facebook-worker browser plumbing
 
-❌ **NOT CONFUSING**: Each pattern serves a different purpose
+- `BROWSER`
+- `BROWSER_SESSION`
 
-📝 **REMEMBER**:
-- Only `workers/*/` directories need their own `wrangler.toml`
-- `src/workers/` files are just TypeScript modules
-- Service bindings connect separate workers together
-- Each separate worker deploys independently
+## Helper modules in `src/workers/`
 
-This is a **monorepo pattern** and is recommended by Cloudflare for complex applications!
+These are importable modules, not separate deployments:
+
+- `src/workers/blogWorker.ts` — daily blog automation helper for the root worker
+- `src/workers/facebookWorker.ts` — shared Facebook helper logic for the root worker
+
+## Maintenance rule
+
+When a worker, route, queue, workflow, cron expression, or binding changes, update this file together with:
+
+- `AGENTS.md`
+- `README.md`
+- `.planning/codebase/WORKERS.md`
+- `.planning/codebase/ARCHITECTURE.md`
+- `.planning/codebase/STRUCTURE.md`
+
+That keeps the repo instructions and the planning docs aligned with the deployed worker set.
