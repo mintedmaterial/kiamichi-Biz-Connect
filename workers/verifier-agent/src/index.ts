@@ -1,5 +1,6 @@
 interface Env {
   AI: Ai;
+  FLAGS: Flagship;
   VERIFIER_SHARED_SECRET?: string;
 }
 

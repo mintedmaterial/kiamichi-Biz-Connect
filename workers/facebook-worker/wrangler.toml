@@ -21,6 +21,11 @@ bucket_name = "kiamichi-biz-images"
 [ai]
 binding = "AI"
 
+# Flagship feature flags shared with the rest of the app
+[[flagship]]
+binding = "FLAGS"
+app_id = "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+
 # Browser Rendering API for Facebook posting
 [browser]
 binding = "BROWSER"

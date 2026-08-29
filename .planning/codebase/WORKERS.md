@@ -18,6 +18,7 @@ This planning note mirrors the current deployable worker set in the repo. Keep i
 - D1: `kiamichi-biz-connect-db`
 - KV: `CACHE`
 - R2: `IMAGES`, `BUSINESS_IMAGES`, `BUSINESS_ASSETS`, `TEMPLATES`
+- Shared Flagship app: `FLAGS` on the root worker and every deployable worker
 - Root worker service binding: `ANALYZER`
 - Business agent service bindings: `ANALYZER`, `RAG_AGENT`, `FACEBOOK_WORKER`
 - Discovery worker service / workflow plumbing: `VERIFIER`, `DISCOVERY_QUEUE`, `DISCOVERY_WORKFLOW`, `VERIFICATION_WORKFLOW`

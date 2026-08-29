@@ -30,10 +30,11 @@ KiamichiBizConnect is a Cloudflare Workers application with one root worker and 
 
 ### Services and workflows
 
+- Shared feature-flag app → `FLAGS` on the root worker and every deployable satellite worker
 - Root worker → `ANALYZER`
 - Business agent → `ANALYZER`, `RAG_AGENT`, `FACEBOOK_WORKER`
 - Discovery worker → `VERIFIER`, `DISCOVERY_QUEUE`, `DISCOVERY_WORKFLOW`, `VERIFICATION_WORKFLOW`, `FLAGS`
-- Facebook worker → `BROWSER`, `BROWSER_SESSION`
+- Facebook worker → `BROWSER`, `BROWSER_SESSION`, `FLAGS`
 
 ## Data flow snapshot
 

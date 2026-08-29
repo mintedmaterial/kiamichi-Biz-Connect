@@ -99,12 +99,13 @@ cd workers/verifier-agent && npm run dev && npm run deploy && npm run typecheck
   - `BUSINESS_IMAGES` → `kiamichi-business-images`
   - `BUSINESS_ASSETS` → `kiamichi-business-assets`
   - `TEMPLATES` → `kiamichi-component-templates`
-- Root worker also binds `AI`, `FLAGS`, and the `ANALYZER` service binding.
+- All deployable workers bind the shared Flagship app id as `FLAGS`; the root worker also binds `AI` and the `ANALYZER` service binding.
 
 ### Satellite-worker notes
 
 - `workers/business-agent/wrangler.jsonc` also binds `RAG_AGENT` and `FACEBOOK_WORKER`, plus Durable Objects `Chat`, `VoiceAgent`, and `AtlasLive`.
 - `workers/facebook-worker/wrangler.toml` also binds `BROWSER` and `BROWSER_SESSION`.
+- `workers/analyzer-worker/wrangler.toml`, `workers/facebook-worker/wrangler.toml`, `workers/business-agent/wrangler.jsonc`, `workers/discovery-worker/wrangler.toml`, and `workers/verifier-agent/wrangler.toml` all bind the shared Flagship app as `FLAGS`.
 - `workers/discovery-worker/wrangler.toml` also binds queue/workflow plumbing and the `VERIFIER` service binding.
 - `workers/verifier-agent/wrangler.toml` is AI-driven and expects `VERIFIER_SHARED_SECRET`.
 

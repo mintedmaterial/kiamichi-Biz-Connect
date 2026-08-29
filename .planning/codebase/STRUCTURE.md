@@ -50,6 +50,8 @@ Standalone deployable Worker projects:
 - `discovery-worker` — discovery and verification workflow orchestration
 - `verifier-agent` — independent verification service
 
+Each deployable worker binds the shared Flagship app as `FLAGS` so feature gating is consistent across the monorepo.
+
 ### `docs/`
 
 Human-facing operating docs and guides, including the Bigfoot agent guide and feature notes.
