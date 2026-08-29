@@ -88,6 +88,7 @@ kiamichi-biz-connect/
 ## Notes for contributors
 
 - `src/workers/*` are helper modules for the root worker, not separate deployments.
+- Discovery worker uses a Flagship feature flag to gate the daily discovery pipeline until automation is tuned.
 - Each folder under `workers/` is its own deployable Worker project.
 - Update the architecture/docs inventory whenever a worker, route, cron, queue, or binding changes.
 

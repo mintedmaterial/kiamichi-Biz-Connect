@@ -78,7 +78,7 @@ Import/data SQL migrations used for bulk or historical data work.
 - `workers/business-agent/wrangler.jsonc` — business-agent bindings and Durable Objects
 - `workers/analyzer-worker/wrangler.toml` — analyzer config
 - `workers/facebook-worker/wrangler.toml` — Facebook config
-- `workers/discovery-worker/wrangler.toml` — discovery config
+- `workers/discovery-worker/wrangler.toml` — discovery config with queue/workflow + feature-flag gating
 - `workers/verifier-agent/wrangler.toml` — verifier config
 
 ## Where to add new code

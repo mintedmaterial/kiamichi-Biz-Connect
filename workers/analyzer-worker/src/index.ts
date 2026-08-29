@@ -247,7 +247,7 @@ async function getBusinessesForAutoUpdate(env: Env): Promise<Business[]> {
     LIMIT 20
   `).all();
 
-  return results as Business[];
+  return results as unknown as Business[];
 }
 
 /**

@@ -1,0 +1,12 @@
+name = "kiamichi-biz-verifier"
+main = "src/index.ts"
+compatibility_date = "2026-08-26"
+
+[ai]
+binding = "AI"
+
+[vars]
+# Set VERIFIER_SHARED_SECRET with Wrangler before deploying.
+
+[observability]
+enabled = true
