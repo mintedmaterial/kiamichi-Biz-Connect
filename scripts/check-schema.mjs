@@ -48,26 +48,37 @@ function assertContract(statePath) {
   ].join(' ')]);
 }
 
-function assertFeaturedBootstrap(statePath) {
+function assertFeaturedBootstrap(statePath, velvetSlug) {
   execute(statePath, ['--command', [
     "INSERT OR IGNORE INTO businesses (name, slug, category_id, city, state)",
-    "VALUES ('Velvet Fringe', 'velvet-fringe-salon',",
+    `VALUES ('Velvet Fringe', '${velvetSlug}',`,
+    "(SELECT id FROM categories WHERE slug = 'beauty-personal-care' LIMIT 1), 'Idabel', 'OK');",
+    "INSERT OR IGNORE INTO businesses (name, slug, category_id, city, state)",
+    "VALUES ('Manual Slot Owner', 'manual-slot-owner',",
     "(SELECT id FROM categories WHERE slug = 'beauty-personal-care' LIMIT 1), 'Idabel', 'OK');"
   ].join(' ')]);
   execute(statePath, ['--file', './seeds/featured-pool.sql']);
   execute(statePath, ['--command', [
+    'CREATE TABLE featured_initial_assertion (ok INTEGER CHECK (ok = 1));',
+    'INSERT INTO featured_initial_assertion (ok) SELECT CASE WHEN',
+    `(SELECT COUNT(*) FROM featured_slots fs JOIN businesses b ON b.id = fs.business_id WHERE fs.slot_position = 5 AND b.slug = '${velvetSlug}') = 1`,
+    'AND (SELECT last_rotated FROM featured_slots WHERE slot_position = 5) IS NOT NULL',
+    'THEN 1 ELSE 0 END;',
+    'DROP TABLE featured_initial_assertion;',
     'CREATE TABLE featured_slot_before_rerun AS',
     'SELECT id FROM featured_slots WHERE slot_position = 5;',
-    'UPDATE featured_slots SET last_rotated = 12345 WHERE slot_position = 5;'
+    "UPDATE featured_slots SET business_id = (SELECT id FROM businesses WHERE slug = 'manual-slot-owner'),",
+    "priority_source = 'manual', last_rotated = 12345 WHERE slot_position = 5;"
   ].join(' ')]);
   execute(statePath, ['--file', './seeds/featured-pool.sql']);
   execute(statePath, ['--command', [
     'CREATE TABLE featured_bootstrap_assertion (ok INTEGER CHECK (ok = 1));',
     'INSERT INTO featured_bootstrap_assertion (ok) SELECT CASE WHEN',
-    "(SELECT COUNT(*) FROM featured_tier_members ft JOIN businesses b ON b.id = ft.business_id WHERE b.slug = 'velvet-fringe-salon') = 1",
-    "AND (SELECT is_featured FROM businesses WHERE slug = 'velvet-fringe-salon') = 1",
-    "AND (SELECT COUNT(*) FROM featured_slots fs JOIN businesses b ON b.id = fs.business_id WHERE fs.slot_position = 5 AND b.slug = 'velvet-fringe-salon') = 1",
+    `(SELECT COUNT(*) FROM featured_tier_members ft JOIN businesses b ON b.id = ft.business_id WHERE b.slug = '${velvetSlug}') = 1`,
+    `AND (SELECT is_featured FROM businesses WHERE slug = '${velvetSlug}') = 1`,
+    "AND (SELECT COUNT(*) FROM featured_slots fs JOIN businesses b ON b.id = fs.business_id WHERE fs.slot_position = 5 AND b.slug = 'manual-slot-owner') = 1",
     'AND (SELECT id FROM featured_slots WHERE slot_position = 5) = (SELECT id FROM featured_slot_before_rerun)',
+    "AND (SELECT priority_source FROM featured_slots WHERE slot_position = 5) = 'manual'",
     'AND (SELECT last_rotated FROM featured_slots WHERE slot_position = 5) = 12345',
     'THEN 1 ELSE 0 END;',
     'DROP TABLE featured_bootstrap_assertion;',
@@ -83,7 +94,7 @@ try {
   runNode(resolve(scriptDir, 'build-schema.mjs'), ['--check']);
   execute(schemaState, ['--file', './schema.sql']);
   assertContract(schemaState);
-  assertFeaturedBootstrap(schemaState);
+  assertFeaturedBootstrap(schemaState, 'velvet-fringe');
 
   const migrations = readdirSync(resolve(rootDir, 'migrations'))
     .filter((file) => /^\d{3}_.+\.sql$/u.test(file))
@@ -92,7 +103,7 @@ try {
     execute(migrationState, ['--file', `./migrations/${migration}`]);
   }
   assertContract(migrationState);
-  assertFeaturedBootstrap(migrationState);
+  assertFeaturedBootstrap(migrationState, 'velvet-fringe-salon');
   console.log(`Validated schema snapshot and ${migrations.length}-migration replay.`);
 } finally {
   rmSync(stateRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });

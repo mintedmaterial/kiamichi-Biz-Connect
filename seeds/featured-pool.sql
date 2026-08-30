@@ -45,6 +45,7 @@ SET business_id = (SELECT id FROM businesses WHERE slug = 'dalton-avenue-flowers
     priority_source = 'rotation',
     last_rotated = COALESCE(last_rotated, unixepoch())
 WHERE slot_position = 1
+  AND business_id IS NULL
   AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'dalton-avenue-flowers-gifts');
 
 UPDATE featured_slots
@@ -52,6 +53,7 @@ SET business_id = (SELECT id FROM businesses WHERE slug = 'strain-plumbing'),
     priority_source = 'rotation',
     last_rotated = COALESCE(last_rotated, unixepoch())
 WHERE slot_position = 2
+  AND business_id IS NULL
   AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'strain-plumbing');
 
 UPDATE featured_slots
@@ -59,6 +61,7 @@ SET business_id = (SELECT id FROM businesses WHERE slug = 'twisted-custom-leathe
     priority_source = 'rotation',
     last_rotated = COALESCE(last_rotated, unixepoch())
 WHERE slot_position = 3
+  AND business_id IS NULL
   AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'twisted-custom-leather');
 
 UPDATE featured_slots
@@ -66,6 +69,7 @@ SET business_id = (SELECT id FROM businesses WHERE slug = 'valliant-storage'),
     priority_source = 'rotation',
     last_rotated = COALESCE(last_rotated, unixepoch())
 WHERE slot_position = 4
+  AND business_id IS NULL
   AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'valliant-storage');
 
 UPDATE featured_slots
@@ -78,6 +82,7 @@ SET business_id = (
     priority_source = 'rotation',
     last_rotated = COALESCE(last_rotated, unixepoch())
 WHERE slot_position = 5
+  AND business_id IS NULL
   AND EXISTS (
     SELECT 1 FROM businesses
     WHERE slug IN ('velvet-fringe', 'velvet-fringe-salon')
@@ -88,4 +93,5 @@ SET business_id = (SELECT id FROM businesses WHERE slug = 'srvcflo-web-marketing
     priority_source = 'rotation',
     last_rotated = COALESCE(last_rotated, unixepoch())
 WHERE slot_position = 6
+  AND business_id IS NULL
   AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'srvcflo-web-marketing-design');

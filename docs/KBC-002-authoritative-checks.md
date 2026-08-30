@@ -42,7 +42,7 @@ Observed locally:
 
 - `schema.sql` matched eight numbered migrations.
 - Both clean D1 construction paths passed the same table/column contract queries.
-- The stable-slug featured bootstrap populated tier membership, `is_featured`, and the expected slot in both disposable databases. Each database applied the bootstrap twice; the second pass had to keep membership singular, preserve the slot row ID, and retain a sentinel `last_rotated` value.
+- The stable-slug featured bootstrap populated tier membership, `is_featured`, and the expected slot in both disposable databases. The snapshot path exercised production's `velvet-fringe` slug and the migration path exercised the import's `velvet-fringe-salon` alias. Each database applied the bootstrap twice; after a simulated manual rotation, the second pass had to keep membership singular and preserve the slot row ID, manual business assignment, priority source, and sentinel `last_rotated` value.
 - Root smoke passed `/health`, `/`, and `/business/smoke-listing`.
 - Main, Analyzer, and Facebook Wrangler dry-runs completed and printed their binding graphs.
 - Business Agent SDK contract passed, all 70 unit tests passed, and production build completed.
