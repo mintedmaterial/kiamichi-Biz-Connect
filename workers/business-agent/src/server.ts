@@ -202,11 +202,6 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
     const url = new URL(request.url);
     console.log(`[DO] Chat DO request: ${request.method} ${url.pathname}`);
 
-    // Handle voice message endpoint (internal calls from VoiceAgent)
-    if (url.pathname === "/voice/message" && request.method === "POST") {
-      return this.handleVoiceMessage(request);
-    }
-
     const session = this.env?.DB
       ? await getVerifiedSessionFromRequest(request, this.env.DB)
       : null;
@@ -225,6 +220,11 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
     }
 
     console.log(`[DO] Valid session present - allowing access`);
+
+    // Handle voice message endpoint (internal calls from an authenticated VoiceAgent)
+    if (url.pathname === "/voice/message" && request.method === "POST") {
+      return this.handleVoiceMessage(request);
+    }
 
     if (url.pathname === "/mcp/connect") {
       return this.handleMcpConnect(request);
