@@ -73,6 +73,14 @@ export async function verifySession(
   }
 }
 
+export async function getVerifiedSessionFromRequest(
+  request: Request,
+  db: D1Database
+): Promise<SessionInfo | null> {
+  const sessionId = parseSessionCookie(request.headers.get("Cookie"));
+  return sessionId ? verifySession(sessionId, db) : null;
+}
+
 /**
  * Get verified businesses for an owner
  * Note: ownerId is the user's email from admin_sessions.user_email

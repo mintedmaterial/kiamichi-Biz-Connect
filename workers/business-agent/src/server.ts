@@ -2,7 +2,7 @@ import { routeAgentRequest, type Schedule, callable } from "agents";
 
 import { getSchedulePrompt } from "agents/schedule";
 
-import { AIChatAgent } from "agents/ai-chat-agent";
+import { AIChatAgent } from "@cloudflare/ai-chat";
 
 // Export VoiceAgent and AtlasLive for Durable Object binding
 export { VoiceAgent } from "./voice-agent";
@@ -25,9 +25,17 @@ import {
   handleMcpServers,
   handleMcpDisconnect
 } from "./mcp-handlers";
+import {
+  connectMcpServer,
+  disconnectMcpServer,
+  listMcpServers
+} from "./mcp-lifecycle";
 import { handlePreview } from "./routes/preview";
 import { handleMyBusiness, handlePublish, handleUserInfo, handleBusinesses, handleBusinessById } from "./routes/api";
-import { getBusinessContextFromSession } from "./utils/session";
+import {
+  getBusinessContextFromSession,
+  getVerifiedSessionFromRequest
+} from "./utils/session";
 import { installExpectedDisconnectLogging } from "./observability";
 
 // Workers AI model ID - binding provided at request time via Chat class
@@ -194,7 +202,30 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
     const url = new URL(request.url);
     console.log(`[DO] Chat DO request: ${request.method} ${url.pathname}`);
 
-    // Handle MCP-specific routes before auth (internal calls only)
+    const session = this.env?.DB
+      ? await getVerifiedSessionFromRequest(request, this.env.DB)
+      : null;
+
+    if (!session) {
+      if (
+        url.pathname.startsWith("/mcp/") ||
+        url.pathname.endsWith("/get-messages")
+      ) {
+        console.log(`[DO] No valid session - rejecting API request`);
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      console.log(`[DO] No valid session - redirecting browser to login`);
+      return Response.redirect("https://kiamichibizconnect.com/auth/google/login", 302);
+    }
+
+    console.log(`[DO] Valid session present - allowing access`);
+
+    // Handle voice message endpoint (internal calls from an authenticated VoiceAgent)
+    if (url.pathname === "/voice/message" && request.method === "POST") {
+      return this.handleVoiceMessage(request);
+    }
+
     if (url.pathname === "/mcp/connect") {
       return this.handleMcpConnect(request);
     }
@@ -206,23 +237,6 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
     if (url.pathname === "/mcp/disconnect") {
       return this.handleMcpDisconnect(request);
     }
-
-    // Handle voice message endpoint (internal calls from VoiceAgent)
-    if (url.pathname === "/voice/message" && request.method === "POST") {
-      return this.handleVoiceMessage(request);
-    }
-
-    // Simple cookie check - if no session cookie, user needs to login
-    const cookie = request.headers.get("Cookie");
-    const hasSession = cookie && cookie.includes("admin_session=");
-
-    if (!hasSession) {
-      console.log(`[DO] No session cookie - redirecting to login`);
-      // Redirect to main domain for authentication
-      return Response.redirect("https://kiamichibizconnect.com/auth/google/login", 302);
-    }
-
-    console.log(`[DO] Session cookie present - allowing access`);
 
     // Get business context from session and store in metadata + state
     // This is used by tools to know which business to operate on
@@ -282,9 +296,6 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
       sessionMessageCount: this.state.sessionMessageCount + 1,
       totalMessageCount: this.state.totalMessageCount + 1
     });
-
-    // Ensure jsonSchema is initialized before getting MCP tools
-    await this.mcp.ensureJsonSchema();
 
     // Collect all tools, including MCP tools
     const allTools = {
@@ -421,26 +432,15 @@ ${getSchedulePrompt({ date: new Date() })}`;
 
       console.log(`[MCP] Connecting to ${name} at ${serverUrl}`);
 
-      // Use Agent's addMcpServer method (as per Cloudflare docs)
-      const { id, authUrl } = await this.addMcpServer(name, serverUrl);
+      const result = await connectMcpServer(this, name, serverUrl);
 
-      // If OAuth required, return authUrl
-      if (authUrl) {
+      if (result.status === "auth_required") {
         console.log(`[MCP] OAuth required for ${name}`);
-        return Response.json({
-          status: "auth_required",
-          authUrl: authUrl,
-          serverId: id
-        });
+        return Response.json(result);
       }
 
-      // Otherwise, connection successful
       console.log(`[MCP] Successfully connected to ${name}`);
-      return Response.json({
-        status: "connected",
-        serverId: id,
-        message: `Successfully connected to ${name}`
-      });
+      return Response.json(result);
     } catch (error) {
       console.error("[MCP] Connect error:", error);
       return Response.json({ error: String(error) }, { status: 500 });
@@ -453,10 +453,7 @@ ${getSchedulePrompt({ date: new Date() })}`;
   private async handleMcpServers(request: Request): Promise<Response> {
     try {
       console.log("[MCP] Listing servers");
-      // Use Agent's getMcpServers method (as per Cloudflare docs)
-      const mcpState = this.getMcpServers();
-
-      return Response.json(mcpState);
+      return Response.json(listMcpServers(this));
     } catch (error) {
       console.error("[MCP] Servers list error:", error);
       return Response.json({ error: String(error) }, { status: 500 });
@@ -472,12 +469,7 @@ ${getSchedulePrompt({ date: new Date() })}`;
 
       console.log(`[MCP] Disconnecting server ${serverId}`);
 
-      // Note: The agents framework may not expose a disconnect method
-      // For now, we'll return success - servers are managed in SQL storage
-      return Response.json({
-        status: "disconnected",
-        message: `Disconnected from server ${serverId}`
-      });
+      return Response.json(await disconnectMcpServer(this, serverId));
     } catch (error) {
       console.error("[MCP] Disconnect error:", error);
       return Response.json({ error: String(error) }, { status: 500 });
@@ -494,9 +486,6 @@ ${getSchedulePrompt({ date: new Date() })}`;
       const { text } = await request.json<{ text: string }>();
 
       console.log(`[Voice] Processing voice message: ${text}`);
-
-      // Ensure jsonSchema is initialized
-      await this.mcp.ensureJsonSchema();
 
       // Collect all tools, including MCP tools
       const allTools = {

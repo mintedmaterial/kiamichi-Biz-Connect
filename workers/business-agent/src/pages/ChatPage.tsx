@@ -1,10 +1,10 @@
 /** biome-ignore-all lint/correctness/useUniqueElementIds: it's alright */
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useAgent } from "agents/react";
-import { isStaticToolUIPart } from "ai";
-import { useAgentChat } from "agents/ai-react";
-import type { UIMessage } from "@ai-sdk/react";
+import { isStaticToolUIPart, type UIMessage } from "ai";
+import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { useBusiness } from "@/contexts/BusinessContext";
+import { getMessageCreatedAt } from "@/lib/message-metadata";
 
 // Component imports
 import { Button } from "@/components/button/Button";
@@ -541,7 +541,7 @@ export function ChatPage() {
                                 />
                               </Card>
                               <p className={`text-xs text-neutral-500 mt-1 ${isUser ? "text-right" : "text-left"}`}>
-                                {formatTime(m.metadata?.createdAt ? new Date(m.metadata.createdAt) : new Date())}
+                                {formatTime(getMessageCreatedAt(m.metadata) ?? new Date())}
                               </p>
                             </div>
                           );

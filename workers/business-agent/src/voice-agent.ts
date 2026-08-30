@@ -8,10 +8,12 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { logExpectedDisconnect, logWebSocketClose } from "./observability";
+import { getVerifiedSessionFromRequest } from "./utils/session";
 
 interface VoiceSession {
   websocket: WebSocket;
   chatAgentId: string;
+  sessionCookie: string;
   isListening: boolean;
   audioBuffer: ArrayBuffer[];
   hasReceivedAudio?: boolean;
@@ -35,6 +37,12 @@ export class VoiceAgent extends DurableObject {
 
       // WebSocket upgrade for voice streaming
       if (url.pathname === "/voice/stream" && request.headers.get("Upgrade") === "websocket") {
+        const session = await getVerifiedSessionFromRequest(request, this.env.DB);
+        if (!session) {
+          console.log("[Voice] No valid session - rejecting WebSocket upgrade");
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
         console.log(`[Voice] WebSocket upgrade requested`);
         return this.handleWebSocketUpgrade(request);
       }
@@ -75,6 +83,7 @@ export class VoiceAgent extends DurableObject {
       const session: VoiceSession = {
         websocket: server,
         chatAgentId: "default", // Use default chat agent room
+        sessionCookie: request.headers.get("Cookie") ?? "",
         isListening: false,
         audioBuffer: []
       };
@@ -294,7 +303,11 @@ export class VoiceAgent extends DurableObject {
                 message: "Processing your request..."
               }));
 
-              const chatResponse = await this.sendToChatAgent(session.chatAgentId, fullTranscript);
+              const chatResponse = await this.sendToChatAgent(
+                session.chatAgentId,
+                fullTranscript,
+                session.sessionCookie
+              );
 
               session.websocket.send(JSON.stringify({
                 type: "response-text",
@@ -407,7 +420,11 @@ export class VoiceAgent extends DurableObject {
         message: "Processing your request..."
       }));
 
-      const chatResponse = await this.sendToChatAgent(session.chatAgentId, transcript);
+      const chatResponse = await this.sendToChatAgent(
+        session.chatAgentId,
+        transcript,
+        session.sessionCookie
+      );
 
       console.log(`[Voice] Chat response: ${chatResponse}`);
 
@@ -540,7 +557,11 @@ export class VoiceAgent extends DurableObject {
   /**
    * Send transcript to Chat Agent for processing
    */
-  private async sendToChatAgent(chatAgentId: string, message: string): Promise<string> {
+  private async sendToChatAgent(
+    chatAgentId: string,
+    message: string,
+    sessionCookie: string
+  ): Promise<string> {
     try {
       // Get Chat DO
       const id = this.env.Chat.idFromName(chatAgentId);
@@ -550,7 +571,8 @@ export class VoiceAgent extends DurableObject {
       const response = await chatDO.fetch(new Request("https://fake-host/voice/message", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          Cookie: sessionCookie
         },
         body: JSON.stringify({
           text: message
