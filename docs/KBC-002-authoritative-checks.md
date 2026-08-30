@@ -20,7 +20,7 @@
 - `001_initial_schema.sql` restores the missing clean-database baseline.
 - `002_shared_worker_tables.sql` captures shared root/analyzer data contracts.
 - Existing migrations `003`, `005`, and `010` remain ordered in place.
-- `004_featured_rotation.sql` no longer seeds environment-specific numeric business IDs. Existing production rows are not modified because this change is only to the future replay source; no remote migration was executed.
+- `004_featured_rotation.sql` no longer seeds environment-specific numeric business IDs. The curated operational pool moved to the idempotent `seeds/featured-pool.sql`, which resolves the same businesses by stable slug after business data is imported. The schema check exercises that bootstrap against both disposable database paths. Existing production rows are not modified; no remote migration was executed.
 - `006_business_agent.sql` captures session, ownership, listing draft, component, snapshot, R2 publication, and activity tables used by the Business Agent.
 - `009_ad_placement_auction_tier.sql` adds the placement-tier link before sponsored-tier tables are created.
 
@@ -42,6 +42,7 @@ Observed locally:
 
 - `schema.sql` matched eight numbered migrations.
 - Both clean D1 construction paths passed the same table/column contract queries.
+- The stable-slug featured bootstrap populated tier membership, `is_featured`, and the expected slot in both disposable databases.
 - Root smoke passed `/health`, `/`, and `/business/smoke-listing`.
 - Main, Analyzer, and Facebook Wrangler dry-runs completed and printed their binding graphs.
 - Business Agent SDK contract passed, all 70 unit tests passed, and production build completed.
