@@ -56,11 +56,22 @@ function assertFeaturedBootstrap(statePath) {
   ].join(' ')]);
   execute(statePath, ['--file', './seeds/featured-pool.sql']);
   execute(statePath, ['--command', [
-    'SELECT CASE WHEN',
+    'CREATE TABLE featured_slot_before_rerun AS',
+    'SELECT id FROM featured_slots WHERE slot_position = 5;',
+    'UPDATE featured_slots SET last_rotated = 12345 WHERE slot_position = 5;'
+  ].join(' ')]);
+  execute(statePath, ['--file', './seeds/featured-pool.sql']);
+  execute(statePath, ['--command', [
+    'CREATE TABLE featured_bootstrap_assertion (ok INTEGER CHECK (ok = 1));',
+    'INSERT INTO featured_bootstrap_assertion (ok) SELECT CASE WHEN',
     "(SELECT COUNT(*) FROM featured_tier_members ft JOIN businesses b ON b.id = ft.business_id WHERE b.slug = 'velvet-fringe') = 1",
     "AND (SELECT is_featured FROM businesses WHERE slug = 'velvet-fringe') = 1",
     "AND (SELECT COUNT(*) FROM featured_slots fs JOIN businesses b ON b.id = fs.business_id WHERE fs.slot_position = 5 AND b.slug = 'velvet-fringe') = 1",
-    "THEN 1 ELSE json('featured-bootstrap-failed') END AS featured_bootstrap_ok;"
+    'AND (SELECT id FROM featured_slots WHERE slot_position = 5) = (SELECT id FROM featured_slot_before_rerun)',
+    'AND (SELECT last_rotated FROM featured_slots WHERE slot_position = 5) = 12345',
+    'THEN 1 ELSE 0 END;',
+    'DROP TABLE featured_bootstrap_assertion;',
+    'DROP TABLE featured_slot_before_rerun;'
   ].join(' ')]);
 }
 

@@ -38,30 +38,38 @@ WHERE slug IN (
   'srvcflo-web-marketing-design'
 );
 
-INSERT OR REPLACE INTO featured_slots (
-  slot_position,
-  business_id,
-  priority_source,
-  last_rotated
-)
-SELECT
-  CASE slug
-    WHEN 'dalton-avenue-flowers-gifts' THEN 1
-    WHEN 'strain-plumbing' THEN 2
-    WHEN 'twisted-custom-leather' THEN 3
-    WHEN 'valliant-storage' THEN 4
-    WHEN 'velvet-fringe' THEN 5
-    WHEN 'srvcflo-web-marketing-design' THEN 6
-  END,
-  id,
-  'rotation',
-  unixepoch()
-FROM businesses
-WHERE slug IN (
-  'dalton-avenue-flowers-gifts',
-  'strain-plumbing',
-  'twisted-custom-leather',
-  'valliant-storage',
-  'velvet-fringe',
-  'srvcflo-web-marketing-design'
-);
+UPDATE featured_slots
+SET business_id = (SELECT id FROM businesses WHERE slug = 'dalton-avenue-flowers-gifts'),
+    priority_source = 'rotation'
+WHERE slot_position = 1
+  AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'dalton-avenue-flowers-gifts');
+
+UPDATE featured_slots
+SET business_id = (SELECT id FROM businesses WHERE slug = 'strain-plumbing'),
+    priority_source = 'rotation'
+WHERE slot_position = 2
+  AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'strain-plumbing');
+
+UPDATE featured_slots
+SET business_id = (SELECT id FROM businesses WHERE slug = 'twisted-custom-leather'),
+    priority_source = 'rotation'
+WHERE slot_position = 3
+  AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'twisted-custom-leather');
+
+UPDATE featured_slots
+SET business_id = (SELECT id FROM businesses WHERE slug = 'valliant-storage'),
+    priority_source = 'rotation'
+WHERE slot_position = 4
+  AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'valliant-storage');
+
+UPDATE featured_slots
+SET business_id = (SELECT id FROM businesses WHERE slug = 'velvet-fringe'),
+    priority_source = 'rotation'
+WHERE slot_position = 5
+  AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'velvet-fringe');
+
+UPDATE featured_slots
+SET business_id = (SELECT id FROM businesses WHERE slug = 'srvcflo-web-marketing-design'),
+    priority_source = 'rotation'
+WHERE slot_position = 6
+  AND EXISTS (SELECT 1 FROM businesses WHERE slug = 'srvcflo-web-marketing-design');
