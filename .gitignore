@@ -9,6 +9,7 @@ yarn.lock
 
 # Build outputs
 dist/
+dist-dry-run/
 *.js
 *.map
 
@@ -76,7 +77,7 @@ import-services-charge-stations-*.sql
 seed.sql
 lead-generation-schema.sql
 migration-*.sql
-migrations/
+# Numbered D1 migrations are canonical source and must remain tracked.
 
 # Build/dev directories
 public/

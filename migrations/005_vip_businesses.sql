@@ -56,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_vip_post_history_angle ON vip_post_history(busine
 CREATE INDEX IF NOT EXISTS idx_vip_post_history_date ON vip_post_history(posted_at);
 
 -- NOTE: After running this migration, add VIP businesses with:
--- INSERT INTO vip_businesses (business_id, vip_type, notes) VALUES 
+-- INSERT INTO vip_businesses (business_id, vip_type, notes) VALUES
 --   (XXX, 'family', 'Velvet Fringe Salon'),
 --   (YYY, 'family', 'Twisted Custom Leather');
 -- (Replace XXX and YYY with actual business IDs from the businesses table)
