@@ -50,7 +50,10 @@ export async function handleMcpConnect(
       new Request(`https://fake-host/mcp/connect`, {
         method: "POST",
         body: JSON.stringify({ serverUrl, name }),
-        headers: { "Content-Type": "application/json" }
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: request.headers.get("Cookie") ?? ""
+        }
       })
     );
 
@@ -78,7 +81,10 @@ export async function handleMcpServers(
     const chatDO = env.Chat.get(id);
 
     const serversResponse = await chatDO.fetch(
-      new Request(`https://docs.mcp.cloudflare.com/mcp`, { method: "GET" })
+      new Request(`https://fake-host/mcp/servers`, {
+        method: "GET",
+        headers: { Cookie: request.headers.get("Cookie") ?? "" }
+      })
     );
 
     return serversResponse;
@@ -121,7 +127,10 @@ export async function handleMcpDisconnect(
       new Request(`https://fake-host/mcp/disconnect`, {
         method: "POST",
         body: JSON.stringify({ serverId }),
-        headers: { "Content-Type": "application/json" }
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: request.headers.get("Cookie") ?? ""
+        }
       })
     );
 

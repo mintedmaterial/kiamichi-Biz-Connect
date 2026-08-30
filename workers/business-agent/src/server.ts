@@ -32,7 +32,10 @@ import {
 } from "./mcp-lifecycle";
 import { handlePreview } from "./routes/preview";
 import { handleMyBusiness, handlePublish, handleUserInfo, handleBusinesses, handleBusinessById } from "./routes/api";
-import { getBusinessContextFromSession } from "./utils/session";
+import {
+  getBusinessContextFromSession,
+  getVerifiedSessionFromRequest
+} from "./utils/session";
 import { installExpectedDisconnectLogging } from "./observability";
 
 // Workers AI model ID - binding provided at request time via Chat class
@@ -199,7 +202,30 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
     const url = new URL(request.url);
     console.log(`[DO] Chat DO request: ${request.method} ${url.pathname}`);
 
-    // Handle MCP-specific routes before auth (internal calls only)
+    // Handle voice message endpoint (internal calls from VoiceAgent)
+    if (url.pathname === "/voice/message" && request.method === "POST") {
+      return this.handleVoiceMessage(request);
+    }
+
+    const session = this.env?.DB
+      ? await getVerifiedSessionFromRequest(request, this.env.DB)
+      : null;
+
+    if (!session) {
+      if (
+        url.pathname.startsWith("/mcp/") ||
+        url.pathname.endsWith("/get-messages")
+      ) {
+        console.log(`[DO] No valid session - rejecting API request`);
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      console.log(`[DO] No valid session - redirecting browser to login`);
+      return Response.redirect("https://kiamichibizconnect.com/auth/google/login", 302);
+    }
+
+    console.log(`[DO] Valid session present - allowing access`);
+
     if (url.pathname === "/mcp/connect") {
       return this.handleMcpConnect(request);
     }
@@ -211,23 +237,6 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
     if (url.pathname === "/mcp/disconnect") {
       return this.handleMcpDisconnect(request);
     }
-
-    // Handle voice message endpoint (internal calls from VoiceAgent)
-    if (url.pathname === "/voice/message" && request.method === "POST") {
-      return this.handleVoiceMessage(request);
-    }
-
-    // Simple cookie check - if no session cookie, user needs to login
-    const cookie = request.headers.get("Cookie");
-    const hasSession = cookie && cookie.includes("admin_session=");
-
-    if (!hasSession) {
-      console.log(`[DO] No session cookie - redirecting to login`);
-      // Redirect to main domain for authentication
-      return Response.redirect("https://kiamichibizconnect.com/auth/google/login", 302);
-    }
-
-    console.log(`[DO] Session cookie present - allowing access`);
 
     // Get business context from session and store in metadata + state
     // This is used by tools to know which business to operate on

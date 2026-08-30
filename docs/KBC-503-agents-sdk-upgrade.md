@@ -1,5 +1,9 @@
 # KBC-503 Agents SDK upgrade
 
+**Owner:** Cleo
+
+**Affected runtime:** `kiamichi-business-agent` Cloudflare Worker and `Chat` Durable Object
+
 ## Scope
 
 This slice upgrades the existing Business Agent runtime without adding Cloudflare Computer, Sandbox, or Flue packages.
@@ -16,8 +20,9 @@ The chat imports move from the deprecated `agents/ai-chat-agent` and `agents/ai-
 - The Durable Object class and binding remain named `Chat`; no new Durable Object migration is required.
 - Existing `useAgent` instance names remain unchanged, so browser reconnects target the same Durable Object identities.
 - `useAgentChat` retains automatic reconnect and active-stream resumption through the current AI Chat package.
-- MCP clients can negotiate the current stateless protocol and fall back to legacy servers through the SDK client manager.
+- MCP connect, list, and disconnect operations now use the current SDK lifecycle methods.
 - MCP disconnect now invokes `removeMcpServer` before reporting success. The previous implementation returned a false success without removing SDK state.
+- Chat and MCP requests require a D1-backed, unexpired admin session. A cookie name alone is not accepted as proof of authentication.
 
 ## Verification
 
@@ -31,6 +36,18 @@ npm run build
 ```
 
 The unit suite covers MCP connect, OAuth-connect, list, and disconnect behavior. The SDK type contract verifies the chat hook, explicit reconnect API, and MCP add/list/remove APIs against installed package declarations. The production build verifies the server and both React chat surfaces resolve through the new package exports.
+
+### Recorded evidence for PR #56
+
+- Initial SDK implementation head: `4464866679c1761f335153ad79ab26cb14347a14`.
+- `npm run test:unit`: 70 tests passed, including forged and valid D1-backed session handling.
+- `npm run test:sdk-contract`: passed.
+- `npm run build`: passed.
+- Wrangler dry-run: passed with the expected Durable Object, D1, KV, R2, Workers AI, and service bindings.
+- TypeScript regression comparison: 83 errors on `origin/main` and 83 on the branch, with no new errors introduced by the upgrade.
+- Manual non-production Worker: `kiamichi-business-agent-kbc-503-preview`, version `fe05a0e2-3a36-49f5-a8a6-1ccfeaf27c0d`.
+- Browser/CDP and Worker-tail probe confirmed the unauthenticated message request followed the existing login redirect and produced no Worker exception. The direct workers.dev surface cannot complete Google OAuth because that hostname is not an authorized callback.
+- A forged-cookie edge probe initially exposed the pre-existing cookie-name-only gate. The follow-up change requires the session ID to resolve to a current D1 `admin_sessions` row before chat or MCP access.
 
 ## Preview acceptance
 
