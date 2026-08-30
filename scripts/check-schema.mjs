@@ -51,7 +51,7 @@ function assertContract(statePath) {
 function assertFeaturedBootstrap(statePath) {
   execute(statePath, ['--command', [
     "INSERT OR IGNORE INTO businesses (name, slug, category_id, city, state)",
-    "VALUES ('Velvet Fringe', 'velvet-fringe',",
+    "VALUES ('Velvet Fringe', 'velvet-fringe-salon',",
     "(SELECT id FROM categories WHERE slug = 'beauty-personal-care' LIMIT 1), 'Idabel', 'OK');"
   ].join(' ')]);
   execute(statePath, ['--file', './seeds/featured-pool.sql']);
@@ -64,9 +64,9 @@ function assertFeaturedBootstrap(statePath) {
   execute(statePath, ['--command', [
     'CREATE TABLE featured_bootstrap_assertion (ok INTEGER CHECK (ok = 1));',
     'INSERT INTO featured_bootstrap_assertion (ok) SELECT CASE WHEN',
-    "(SELECT COUNT(*) FROM featured_tier_members ft JOIN businesses b ON b.id = ft.business_id WHERE b.slug = 'velvet-fringe') = 1",
-    "AND (SELECT is_featured FROM businesses WHERE slug = 'velvet-fringe') = 1",
-    "AND (SELECT COUNT(*) FROM featured_slots fs JOIN businesses b ON b.id = fs.business_id WHERE fs.slot_position = 5 AND b.slug = 'velvet-fringe') = 1",
+    "(SELECT COUNT(*) FROM featured_tier_members ft JOIN businesses b ON b.id = ft.business_id WHERE b.slug = 'velvet-fringe-salon') = 1",
+    "AND (SELECT is_featured FROM businesses WHERE slug = 'velvet-fringe-salon') = 1",
+    "AND (SELECT COUNT(*) FROM featured_slots fs JOIN businesses b ON b.id = fs.business_id WHERE fs.slot_position = 5 AND b.slug = 'velvet-fringe-salon') = 1",
     'AND (SELECT id FROM featured_slots WHERE slot_position = 5) = (SELECT id FROM featured_slot_before_rerun)',
     'AND (SELECT last_rotated FROM featured_slots WHERE slot_position = 5) = 12345',
     'THEN 1 ELSE 0 END;',
@@ -75,7 +75,7 @@ function assertFeaturedBootstrap(statePath) {
   ].join(' ')]);
 }
 
-rmSync(stateRoot, { recursive: true, force: true });
+rmSync(stateRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 mkdirSync(schemaState, { recursive: true });
 mkdirSync(migrationState, { recursive: true });
 
@@ -95,5 +95,5 @@ try {
   assertFeaturedBootstrap(migrationState);
   console.log(`Validated schema snapshot and ${migrations.length}-migration replay.`);
 } finally {
-  rmSync(stateRoot, { recursive: true, force: true });
+  rmSync(stateRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
