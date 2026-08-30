@@ -1,0 +1,59 @@
+name = "kiamichi-biz-discovery-worker"
+main = "src/index.ts"
+compatibility_date = "2026-08-26"
+compatibility_flags = ["nodejs_compat"]
+
+# 8:00 AM Central Standard Time. Cloudflare cron expressions use UTC.
+[triggers]
+crons = ["0 14 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kiamichi-biz-connect-db"
+database_id = "e8b7b17a-a93b-4b61-92ad-80b488266e12"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "a5a33e270e4548548d43cf0554323e57"
+
+[ai]
+binding = "AI"
+
+[[flagship]]
+binding = "FLAGS"
+app_id = "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+
+[[queues.producers]]
+binding = "DISCOVERY_QUEUE"
+queue = "kiamichi-business-discovery"
+
+[[queues.consumers]]
+queue = "kiamichi-business-discovery"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "kiamichi-business-discovery-dlq"
+
+[[workflows]]
+name = "kiamichi-daily-business-discovery"
+binding = "DISCOVERY_WORKFLOW"
+class_name = "BusinessDiscoveryWorkflow"
+
+[[workflows]]
+name = "kiamichi-business-verification"
+binding = "VERIFICATION_WORKFLOW"
+class_name = "VerificationWorkflow"
+
+[[services]]
+binding = "VERIFIER"
+service = "kiamichi-biz-verifier"
+
+[vars]
+MAX_DAILY_DISCOVERIES = "10"
+MINIMUM_RATING = "4"
+MINIMUM_REVIEW_COUNT = "5"
+DISCOVERY_ENABLED = "false"
+# Set secrets with Wrangler: YELP_API_KEY, FB_ACCESS_TOKEN, VERIFIER_SHARED_SECRET, ADMIN_KEY.
+
+[observability]
+enabled = true

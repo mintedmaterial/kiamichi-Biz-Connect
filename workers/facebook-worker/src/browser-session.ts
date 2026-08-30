@@ -31,6 +31,7 @@ interface SessionState {
  */
 interface Env {
   BROWSER: any;
+  FLAGS: Flagship;
   FB_EMAIL: string;
   FB_PASSWORD: string;
   SESSION_LIFETIME_HOURS: string;
@@ -242,6 +243,10 @@ export class BrowserSession implements DurableObject {
       const fb_dtsg = dtsgMatch ? dtsgMatch[1] : undefined;
       console.log('[BrowserSession] Extracted fb_dtsg:', fb_dtsg ? 'YES' : 'NO');
 
+      // Extract cookies (needed for userId fallback below)
+      const cookies = await page.cookies();
+      console.log(`[BrowserSession] Extracted ${cookies.length} cookies`);
+
       // Extract User ID (try multiple patterns)
       let userId: string | undefined;
       const userPatterns = [
@@ -276,10 +281,6 @@ export class BrowserSession implements DurableObject {
       const lsdMatch = profileHtml.match(/\["LSD",\[\],\{"token":"([^"]+)"\}/);
       const lsd = lsdMatch ? lsdMatch[1] : undefined;
       console.log('[BrowserSession] Extracted lsd:', lsd ? 'YES' : 'NO');
-
-      // Extract cookies
-      const cookies = await page.cookies();
-      console.log(`[BrowserSession] Extracted ${cookies.length} cookies`);
 
       // Format cookies as header string
       const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');

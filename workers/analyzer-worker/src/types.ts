@@ -3,6 +3,10 @@ export interface Env {
   IMAGES: R2Bucket;
   CACHE: KVNamespace;
   AI: Ai;
+  FLAGS: {
+    getBooleanValue(flagKey: string, defaultValue: boolean): Promise<boolean>;
+    getBooleanDetails?: (flagKey: string, defaultValue: boolean) => Promise<unknown>;
+  };
   // LOADER: WorkerLoader;  // Code Mode: Uncomment when beta access granted
   SITE_NAME: string;
   SITE_URL: string;

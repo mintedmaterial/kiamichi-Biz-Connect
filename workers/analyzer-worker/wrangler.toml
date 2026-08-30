@@ -17,6 +17,11 @@ database_id = "e8b7b17a-a93b-4b61-92ad-80b488266e12"
 [ai]
 binding = "AI"
 
+# Flagship feature flags shared with the rest of the app
+[[flagship]]
+binding = "FLAGS"
+app_id = "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+
 # R2 for image storage (shared)
 [[r2_buckets]]
 binding = "IMAGES"

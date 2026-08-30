@@ -1,0 +1,17 @@
+name = "kiamichi-biz-verifier"
+main = "src/index.ts"
+compatibility_date = "2026-08-26"
+
+[ai]
+binding = "AI"
+
+# Flagship feature flags shared with the rest of the app
+[[flagship]]
+binding = "FLAGS"
+app_id = "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+
+[vars]
+# Set VERIFIER_SHARED_SECRET with Wrangler before deploying.
+
+[observability]
+enabled = true

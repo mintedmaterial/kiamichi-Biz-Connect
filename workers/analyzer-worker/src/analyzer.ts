@@ -112,7 +112,7 @@ Missing fields: ${missingFields.map(f => f.field).join(', ')}
 Prioritize these fields by importance for this specific business type and provide enhanced reasoning.
 Return ONLY a JSON array of objects with "field" and "reasoning" properties, ordered by priority.`;
 
-      const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct' as any, {
         messages: [
           { role: 'system', content: 'You are a business listing optimization expert. Respond only with valid JSON.' },
           { role: 'user', content: prompt }

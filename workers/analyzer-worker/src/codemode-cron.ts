@@ -27,7 +27,7 @@ function createTools(env: Env) {
         ORDER BY CASE WHEN ba.id IS NULL THEN 0 ELSE 1 END, ba.completeness_score ASC
         LIMIT ?
       `).bind(limit).all();
-      return results as Business[];
+      return results as unknown as Business[];
     },
 
     async analyzeCompleteness({ businessId }: { businessId: number }) {
@@ -255,7 +255,7 @@ This is a scheduled cron run (3x daily).
 
 Respond with ONLY the template name, nothing else. Example: full-analysis`;
 
-    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct' as any, {
       messages: [
         { role: 'system', content: 'You select operations. Output ONLY the operation name.' },
         { role: 'user', content: prompt }

@@ -26,6 +26,12 @@
     "binding": "AI",
     "remote": true
   },
+  "flagship": [
+    {
+      "binding": "FLAGS",
+      "app_id": "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
