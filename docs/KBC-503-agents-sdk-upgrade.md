@@ -45,10 +45,10 @@ The unit suite covers MCP connect, OAuth-connect, list, and disconnect behavior.
 - `npm run build`: passed.
 - Wrangler dry-run: passed with the expected Durable Object, D1, KV, R2, Workers AI, and service bindings.
 - TypeScript regression comparison: 83 errors on `origin/main` and 83 on the branch, with no new errors introduced by the upgrade.
-- Manual non-production Worker: `kiamichi-business-agent-kbc-503-preview`, version `fe05a0e2-3a36-49f5-a8a6-1ccfeaf27c0d`.
+- Manual non-production Worker: `kiamichi-business-agent-kbc-503-preview`, version `7f22dee6-375b-4f0d-aeb1-362b4817ba4c`.
 - Browser/CDP and Worker-tail probe confirmed the unauthenticated message request followed the existing login redirect and produced no Worker exception. The direct workers.dev surface cannot complete Google OAuth because that hostname is not an authorized callback.
 - A forged-cookie edge probe initially exposed the pre-existing cookie-name-only gate. The follow-up change requires the session ID to resolve to a current D1 `admin_sessions` row before chat or MCP access.
-- Voice WebSocket upgrades now require the same D1-backed session, and the Voice Agent forwards that session to the Chat Durable Object for a second verification before processing transcripts.
+- Voice WebSocket upgrades now require the same D1-backed session, and the Voice Agent forwards that session to the Chat Durable Object for a second verification before processing transcripts. Direct preview probes returned `401 {"error":"Unauthorized"}` for both a missing cookie and `admin_session=forged-session`.
 
 ## Preview acceptance
 
