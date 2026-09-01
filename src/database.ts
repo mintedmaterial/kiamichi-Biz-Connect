@@ -201,10 +201,10 @@ export class DatabaseService {
           name, slug, description, category_id, email, phone, website,
           address_line1, address_line2, city, state, zip_code,
           latitude, longitude, service_area,
-          facebook_url, google_business_url, image_url,
+          facebook_url, facebook_page_id, google_business_url, image_url,
           google_rating, google_review_count, facebook_rating, facebook_review_count,
           is_verified, is_featured, is_active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         // Coerce undefined => null for D1 compatibility
@@ -226,6 +226,7 @@ export class DatabaseService {
         business.service_area ?? null,
         // social
         business.facebook_url ?? null,
+        business.facebook_page_id ?? null,
         business.google_business_url ?? null,
         business.image_url ?? null,
         // ratings/reviews

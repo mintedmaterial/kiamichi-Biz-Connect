@@ -953,6 +953,10 @@ async function approveSubmission(id: string, db: DatabaseService): Promise<Respo
     // Parse any extra submission_data (we stored the full submission JSON)
     let extra: any = {};
     try { extra = submission.submission_data ? JSON.parse(String(submission.submission_data)) : {}; } catch (e) { extra = {}; }
+    const verifiedFacebookPageId = typeof extra.facebook_connection?.page_id === 'string'
+      && /^\d+$/.test(extra.facebook_connection.page_id)
+      ? extra.facebook_connection.page_id
+      : undefined;
 
     // Create business - include optional social/review/geolocation fields if provided
     await db.createBusiness({
@@ -972,6 +976,7 @@ async function approveSubmission(id: string, db: DatabaseService): Promise<Respo
       longitude: extra.longitude ? Number(extra.longitude) : undefined,
       service_area: extra.service_area || undefined,
       facebook_url: extra.facebook_url ? String(extra.facebook_url) : undefined,
+      facebook_page_id: verifiedFacebookPageId,
       google_business_url: extra.google_business_url || undefined,
       google_rating: extra.google_rating ? Number(extra.google_rating) : undefined,
       google_review_count: extra.google_review_count ? Number(extra.google_review_count) : undefined,

@@ -10,6 +10,7 @@ const github = read('src/auth/github.ts');
 const middleware = read('src/auth/middleware.ts');
 const facebook = read('src/facebook-oauth.ts');
 const businessAgent = read('workers/business-agent/src/server.ts');
+const database = read('src/database.ts');
 
 function requireText(source, text, message) {
   if (!source.includes(text)) throw new Error(message);
@@ -50,5 +51,8 @@ rejectText(index, "formData.get('is_verified')", 'Server must not trust public v
 rejectText(index, '[name="facebook_rating"]', 'Facebook auto-fill must not write to removed rating controls');
 requireText(businessAgent, 'https://kiamichibizconnect.com/auth/github/login', 'Business Agent must use the live GitHub admin login route');
 rejectText(businessAgent, 'https://kiamichibizconnect.com/auth/google/login', 'Business Agent must not redirect to the disabled Google route');
+requireText(admin, "^\\d+$/.test(extra.facebook_connection.page_id)", 'Approval must validate the Facebook Page ID before persistence');
+requireText(admin, 'facebook_page_id: verifiedFacebookPageId', 'Approval must preserve the validated Facebook Page ID');
+requireText(database, 'business.facebook_page_id ?? null', 'Business creation must persist the validated Facebook Page ID');
 
 console.log('Admin GitHub and business Facebook auth contracts verified.');
