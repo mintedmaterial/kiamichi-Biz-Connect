@@ -40,6 +40,14 @@ export interface FacebookPageInfo {
   category?: string;
 }
 
+export interface FacebookManagedPage {
+  id: string;
+  name: string;
+  category?: string;
+  access_token: string;
+  tasks?: string[];
+}
+
 /**
  * Generate Facebook OAuth login URL
  * @param env Environment with FB_APP_ID and SITE_URL
@@ -51,10 +59,13 @@ export function getFacebookLoginUrl(
   env: Env,
   redirectUri: string,
   state: string,
-  scope: string = 'public_profile,email,pages_read_engagement,pages_manage_posts'
+  scope: string = 'public_profile,pages_show_list,pages_read_engagement'
 ): string {
+  const appId = env.FACEBOOK_APP_ID || env.FB_APP_ID;
+  if (!appId) throw new Error('Facebook OAuth is not configured');
+
   const params = new URLSearchParams({
-    client_id: env.FB_APP_ID as string,
+    client_id: appId,
     redirect_uri: redirectUri,
     state,
     scope,
@@ -75,9 +86,13 @@ export async function exchangeCodeForToken(
   env: Env,
   redirectUri: string
 ): Promise<FacebookTokens> {
+  const appId = env.FACEBOOK_APP_ID || env.FB_APP_ID;
+  const appSecret = env.FACEBOOK_APP_SECRET || env.FB_APP_SECRET;
+  if (!appId || !appSecret) throw new Error('Facebook OAuth is not configured');
+
   const params = new URLSearchParams({
-    client_id: env.FB_APP_ID as string,
-    client_secret: env.FB_APP_SECRET as string,
+    client_id: appId,
+    client_secret: appSecret,
     redirect_uri: redirectUri,
     code
   });
@@ -103,10 +118,14 @@ export async function extendAccessToken(
   shortLivedToken: string,
   env: Env
 ): Promise<{ access_token: string; token_type: string; expires_in: number }> {
+  const appId = env.FACEBOOK_APP_ID || env.FB_APP_ID;
+  const appSecret = env.FACEBOOK_APP_SECRET || env.FB_APP_SECRET;
+  if (!appId || !appSecret) throw new Error('Facebook OAuth is not configured');
+
   const params = new URLSearchParams({
     grant_type: 'fb_exchange_token',
-    client_id: env.FB_APP_ID as string,
-    client_secret: env.FB_APP_SECRET as string,
+    client_id: appId,
+    client_secret: appSecret,
     fb_exchange_token: shortLivedToken
   });
 
@@ -152,18 +171,17 @@ export async function debugAccessToken(
  * Get user's Facebook pages (businesses they manage)
  * @param accessToken User access token
  */
-export async function getUserPages(accessToken: string): Promise<any[]> {
+export async function getUserPages(accessToken: string): Promise<FacebookManagedPage[]> {
   const response = await fetch(
     `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`
   );
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to fetch user pages: ${error}`);
+    throw new Error(`Failed to fetch user pages with status ${response.status}`);
   }
 
-  const data = await response.json();
-  return data.data || [];
+  const data: { data?: FacebookManagedPage[] } = await response.json();
+  return Array.isArray(data.data) ? data.data : [];
 }
 
 /**

@@ -6,19 +6,10 @@ import {
   getFacebookLoginUrl,
   exchangeCodeForToken,
   getUserPages,
-  getPageInfo,
-  storeTokens,
-  getStoredTokens
+  getPageInfo
 } from './facebook-oauth';
-import {
-  handleGoogleLogin,
-  handleGoogleCallback,
-  handleLogout
-} from './auth/google';
-import {
-  handleFacebookAdminLogin,
-  handleFacebookAdminCallback
-} from './auth/facebook-admin';
+import type { FacebookManagedPage, FacebookPageInfo } from './facebook-oauth';
+import { handleLogout } from './auth/google';
 import {
   handleGitHubLogin,
   handleGitHubCallback
@@ -176,24 +167,6 @@ Disallow: /auth/*`, {
         return await handleAPI(path, request, db, env);
       }
 
-      // Google OAuth routes (admin authentication)
-      if (path === '/auth/google/login') {
-        return await handleGoogleLogin(request, env);
-      }
-
-      if (path === '/auth/google/callback') {
-        return await handleGoogleCallback(request, env, db);
-      }
-
-      // Facebook OAuth routes (admin authentication)
-      if (path === '/auth/facebook/admin/login') {
-        return await handleFacebookAdminLogin(request, env);
-      }
-
-      if (path === '/auth/facebook/admin/callback') {
-        return await handleFacebookAdminCallback(request, env, db);
-      }
-
       // GitHub OAuth routes (admin authentication)
       if (path === '/auth/github/login') {
         return await handleGitHubLogin(request, env);
@@ -213,8 +186,7 @@ Disallow: /auth/*`, {
         const authResult = await requireAdminAuth(request, env, db);
 
         if (!authResult.authorized) {
-          // Not authenticated - redirect to login
-          return Response.redirect(new URL('/auth/google/login', request.url).toString(), 302);
+          return Response.redirect(new URL('/auth/github/login', request.url).toString(), 302);
         }
 
         // Authenticated - get session ID and ensure cookie is set for subdomain
@@ -1685,31 +1657,6 @@ async function handleSubmitForm(db: DatabaseService, env: Env): Promise<Response
             <input type="url" name="google_business_url" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#ED5409]">
           </div>
 
-          <div class="grid grid-cols-2 gap-6">
-            <div>
-              <label class="block text-sm font-semibold text-gray-700 mb-2">Google Rating</label>
-              <input type="number" step="0.1" name="google_rating" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#ED5409]">
-            </div>
-            <div>
-              <label class="block text-sm font-semibold text-gray-700 mb-2">Google Review Count</label>
-              <input type="number" name="google_review_count" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#ED5409]">
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-6">
-            <div>
-              <label class="block text-sm font-semibold text-gray-700 mb-2">Facebook Rating</label>
-              <input type="number" step="0.1" name="facebook_rating" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#ED5409]">
-            </div>
-            <div>
-              <label class="block text-sm font-semibold text-gray-700 mb-2">Facebook Review Count</label>
-              <input type="number" name="facebook_review_count" class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#ED5409]">
-            </div>
-          </div>
-
-          <div class="flex items-center gap-4">
-            <label class="inline-flex items-center"><input type="checkbox" name="is_verified"> <span class="ml-2 text-sm">Verified</span></label>
-          </div>
 
           <div class="grid grid-cols-2 gap-6">
             <div>
@@ -1743,12 +1690,11 @@ async function handleSubmitForm(db: DatabaseService, env: Env): Promise<Response
         const fbMessage = document.getElementById('fbMessage');
         const form = document.getElementById('businessForm');
 
-        let fbSession = null;
         let fbPages = [];
 
         // Check if returning from Facebook OAuth
         const urlParams = new URLSearchParams(window.location.search);
-        const session = urlParams.get('fb_session');
+        const connected = urlParams.get('fb_connected');
         const pagesCount = urlParams.get('fb_pages');
         const fbError = urlParams.get('fb_error');
 
@@ -1756,14 +1702,17 @@ async function handleSubmitForm(db: DatabaseService, env: Env): Promise<Response
           showMessage('Facebook login failed: ' + fbError, 'error');
         }
 
-        if (session && pagesCount) {
-          fbSession = session;
+        if (connected === '1' && pagesCount) {
           loadFacebookPages();
+        }
+
+        if (connected || fbError) {
+          window.history.replaceState({}, document.title, '/submit');
         }
 
         // Facebook Login Button Click
         fbLoginBtn.addEventListener('click', function() {
-          window.location.href = '/auth/facebook?return_to=/submit';
+          window.location.href = '/auth/facebook';
         });
 
         // Auto-Fill Button Click
@@ -1777,7 +1726,12 @@ async function handleSubmitForm(db: DatabaseService, env: Env): Promise<Response
           try {
             showMessage('Loading page information...', 'info');
 
-            const response = await fetch('/auth/facebook/page-info?session=' + fbSession + '&page_id=' + pageId);
+            const response = await fetch('/auth/facebook/page-info', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ page_id: pageId })
+            });
             if (!response.ok) throw new Error('Failed to load page info');
 
             const data = await response.json();
@@ -1822,7 +1776,7 @@ async function handleSubmitForm(db: DatabaseService, env: Env): Promise<Response
         // Load user's Facebook pages
         async function loadFacebookPages() {
           try {
-            const response = await fetch('/auth/facebook/pages?session=' + fbSession);
+            const response = await fetch('/auth/facebook/pages', { credentials: 'same-origin' });
             if (!response.ok) throw new Error('Failed to load pages');
 
             const data = await response.json();
@@ -1915,6 +1869,9 @@ async function handleSubmitBusiness(request: Request, db: DatabaseService, env: 
     return new Response('Valid category required', { status: 400 });
   }
 
+  const facebookConnection = await getFacebookSubmitSession(request, env);
+  const connectedFacebookPage = facebookConnection?.session.selectedPage;
+
   // Optional field sanitization
   const phone = formData.get('phone')?.toString().trim() || null;
   const description = formData.get('description')?.toString().trim().substring(0, 2000) || null;
@@ -1926,18 +1883,14 @@ async function handleSubmitBusiness(request: Request, db: DatabaseService, env: 
   const service_area = formData.get('service_area')?.toString().trim() || null;
   const facebook_url_explicit = formData.get('facebook_url')?.toString().trim() || null;
   const google_business_url = formData.get('google_business_url')?.toString().trim() || null;
-  const google_rating = formData.get('google_rating') ? Number(formData.get('google_rating')) : null;
-  const google_review_count = formData.get('google_review_count') ? Number(formData.get('google_review_count')) : null;
-  const facebook_rating = formData.get('facebook_rating') ? Number(formData.get('facebook_rating')) : null;
-  const facebook_review_count = formData.get('facebook_review_count') ? Number(formData.get('facebook_review_count')) : null;
-  const is_verified = formData.get('is_verified') ? true : false;
   const website = formData.get('website')?.toString().trim().substring(0, 300) || null;
 
   const submission = {
     name,
     email,
-    // prefer explicit facebook_url field if user provided it, otherwise use parsed one
-    facebook_url: facebook_url_explicit || facebook_url,
+    facebook_url: connectedFacebookPage
+      ? `https://facebook.com/${connectedFacebookPage.id}`
+      : facebook_url_explicit || facebook_url,
     phone,
     category_id: parseInt(category_id),
     description,
@@ -1951,11 +1904,17 @@ async function handleSubmitBusiness(request: Request, db: DatabaseService, env: 
     state,
     website,
     google_business_url,
-    google_rating,
-    google_review_count,
-    facebook_rating,
-    facebook_review_count,
-    is_verified
+    google_rating: null,
+    google_review_count: null,
+    facebook_rating: connectedFacebookPage?.overall_star_rating ?? null,
+    facebook_review_count: connectedFacebookPage?.rating_count ?? null,
+    is_verified: false,
+    facebook_connection: connectedFacebookPage && facebookConnection ? {
+      source: 'meta_oauth_managed_page',
+      page_id: connectedFacebookPage.id,
+      page_name: connectedFacebookPage.name,
+      connected_at: new Date(facebookConnection.session.createdAt).toISOString()
+    } : null
   };
 
   // Log a minimal submission summary for observability (avoid logging full PII)
@@ -1966,10 +1925,13 @@ async function handleSubmitBusiness(request: Request, db: DatabaseService, env: 
       state,
       category_id: submission.category_id,
       email_provided: !!email,
-      facebook_provided: !!facebook_url
+      facebook_provided: !!submission.facebook_url
     });
 
     await db.createBusinessSubmission(submission);
+    if (facebookConnection) {
+      await env.CACHE.delete(`fb_submit_session:${facebookConnection.id}`);
+    }
   } catch (error) {
     console.error('DB error creating business submission:', error);
     return new Response('Failed to save submission', { status: 500 });
@@ -1978,7 +1940,10 @@ async function handleSubmitBusiness(request: Request, db: DatabaseService, env: 
   // Redirect to success page
   return new Response(null, {
     status: 302,
-    headers: { 'Location': '/?submitted=true' }
+    headers: {
+      'Location': '/?submitted=true',
+      'Set-Cookie': `${FACEBOOK_SUBMIT_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`
+    }
   });
 }
 
@@ -2735,138 +2700,139 @@ async function handleAPI(path: string, request: Request, db: DatabaseService, en
   return new Response('API endpoint not found', { status: 404 });
 }
 
-// Facebook OAuth handler
+const FACEBOOK_SUBMIT_COOKIE = '__Host-kbc_fb_connect';
+
+interface FacebookSubmitSession {
+  pages: FacebookManagedPage[];
+  selectedPage?: FacebookPageInfo;
+  createdAt: number;
+}
+
+function getCookieValue(request: Request, name: string): string | null {
+  const cookies = request.headers.get('Cookie') || '';
+  for (const cookie of cookies.split(';')) {
+    const [key, ...value] = cookie.trim().split('=');
+    if (key === name) return decodeURIComponent(value.join('='));
+  }
+  return null;
+}
+
+function facebookSubmitCookie(sessionId: string): string {
+  return `${FACEBOOK_SUBMIT_COOKIE}=${encodeURIComponent(sessionId)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600`;
+}
+
+function publicFacebookPage(page: FacebookManagedPage): Pick<FacebookManagedPage, 'id' | 'name' | 'category'> {
+  return { id: page.id, name: page.name, category: page.category };
+}
+
+async function getFacebookSubmitSession(request: Request, env: Env): Promise<{ id: string; session: FacebookSubmitSession } | null> {
+  const id = getCookieValue(request, FACEBOOK_SUBMIT_COOKIE);
+  if (!id) return null;
+  const stored = await env.CACHE.get(`fb_submit_session:${id}`);
+  if (!stored) return null;
+  try {
+    return { id, session: JSON.parse(stored) as FacebookSubmitSession };
+  } catch {
+    return null;
+  }
+}
+
+// Read-only Facebook Page connection for the public business submission flow.
 async function handleFacebookAuth(path: string, request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
-
-  // Check if Facebook app credentials are configured
-  // Support both old (FB_APP_ID) and new (FACEBOOK_APP_ID) variable names
-  const fbAppId = env.FACEBOOK_APP_ID || env.FB_APP_ID;
-  const fbAppSecret = env.FACEBOOK_APP_SECRET || env.FB_APP_SECRET;
-
-  if (!fbAppId || !fbAppSecret) {
+  const supportedPaths = new Set([
+    '/auth/facebook',
+    '/auth/facebook/callback',
+    '/auth/facebook/pages',
+    '/auth/facebook/page-info'
+  ]);
+  if (!supportedPaths.has(path)) {
+    return new Response('Not found', { status: 404 });
+  }
+  if (!(env.FACEBOOK_APP_ID || env.FB_APP_ID) || !(env.FACEBOOK_APP_SECRET || env.FB_APP_SECRET)) {
     return Response.json({ error: 'Facebook integration not configured' }, { status: 503 });
   }
 
-  // Use the correct variable names for the rest of the function
-  env.FB_APP_ID = fbAppId;
-  env.FB_APP_SECRET = fbAppSecret;
-
-  // Initiate OAuth flow: /auth/facebook
   if (path === '/auth/facebook') {
-    const returnTo = url.searchParams.get('return_to') || '/submit';
     const state = crypto.randomUUID();
-
-    // Store state in KV for validation (expires in 10 minutes)
-    await env.CACHE.put(`fb_oauth_state:${state}`, JSON.stringify({ returnTo, timestamp: Date.now() }), {
+    await env.CACHE.put(`fb_oauth_state:${state}`, JSON.stringify({ returnTo: '/submit', createdAt: Date.now() }), {
       expirationTtl: 600
     });
-
     const redirectUri = `${env.SITE_URL}/auth/facebook/callback`;
-    const loginUrl = getFacebookLoginUrl(env, redirectUri, state);
-
-    return Response.redirect(loginUrl, 302);
+    return Response.redirect(getFacebookLoginUrl(env, redirectUri, state), 302);
   }
 
-  // OAuth callback: /auth/facebook/callback
   if (path === '/auth/facebook/callback') {
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
-    const error = url.searchParams.get('error');
-
-    // Check for OAuth errors
-    if (error) {
-      return Response.redirect(`${env.SITE_URL}/submit?fb_error=${encodeURIComponent(error)}`, 302);
+    if (url.searchParams.has('error')) {
+      return Response.redirect(`${env.SITE_URL}/submit?fb_error=not_completed`, 302);
     }
-
     if (!code || !state) {
       return Response.json({ error: 'Missing code or state parameter' }, { status: 400 });
     }
 
-    // Validate state parameter
-    const storedState = await env.CACHE.get(`fb_oauth_state:${state}`);
+    const stateKey = `fb_oauth_state:${state}`;
+    const storedState = await env.CACHE.get(stateKey);
     if (!storedState) {
       return Response.json({ error: 'Invalid or expired state parameter' }, { status: 400 });
     }
-
-    const { returnTo } = JSON.parse(storedState);
+    await env.CACHE.delete(stateKey);
 
     try {
-      // Exchange code for access token
       const redirectUri = `${env.SITE_URL}/auth/facebook/callback`;
       const tokens = await exchangeCodeForToken(code, env, redirectUri);
-
-      // Get user's Facebook pages
       const pages = await getUserPages(tokens.access_token);
-
-      // Store tokens in session (using a random session ID)
       const sessionId = crypto.randomUUID();
-      await storeTokens(env, `session:${sessionId}`, tokens);
-
-      // Store pages data temporarily
-      await env.CACHE.put(`fb_pages:${sessionId}`, JSON.stringify(pages), {
-        expirationTtl: 3600 // 1 hour
-      });
-
-      // Redirect to page selection or back to return URL with session
-      const redirectUrl = new URL(returnTo, env.SITE_URL);
-      redirectUrl.searchParams.set('fb_session', sessionId);
+      const session: FacebookSubmitSession = { pages, createdAt: Date.now() };
+      await env.CACHE.put(`fb_submit_session:${sessionId}`, JSON.stringify(session), { expirationTtl: 3600 });
+      const redirectUrl = new URL('/submit', env.SITE_URL);
+      redirectUrl.searchParams.set('fb_connected', '1');
       redirectUrl.searchParams.set('fb_pages', pages.length.toString());
-
-      return Response.redirect(redirectUrl.toString(), 302);
-
-    } catch (error) {
-      console.error('Facebook OAuth error:', error);
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirectUrl.toString(), 'Set-Cookie': facebookSubmitCookie(sessionId), 'Cache-Control': 'no-store' }
+      });
+    } catch {
+      console.error('Facebook submission connection failed');
       return Response.redirect(`${env.SITE_URL}/submit?fb_error=auth_failed`, 302);
     }
   }
 
-  // Get pages for a session: /auth/facebook/pages
   if (path === '/auth/facebook/pages') {
-    const sessionId = url.searchParams.get('session');
-
-    if (!sessionId) {
-      return Response.json({ error: 'Missing session parameter' }, { status: 400 });
-    }
-
-    const pagesData = await env.CACHE.get(`fb_pages:${sessionId}`);
-
-    if (!pagesData) {
-      return Response.json({ error: 'Session expired or invalid' }, { status: 404 });
-    }
-
-    try {
-      const pages = JSON.parse(pagesData);
-      return Response.json({ pages });
-    } catch {
-      return Response.json({ error: 'Invalid pages data' }, { status: 500 });
-    }
+    const connection = await getFacebookSubmitSession(request, env);
+    if (!connection) return Response.json({ error: 'Connection expired or invalid' }, { status: 401 });
+    return Response.json(
+      { pages: connection.session.pages.map(publicFacebookPage) },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
   }
 
-  // Get page info: /auth/facebook/page-info?session=xxx&page_id=yyy
   if (path === '/auth/facebook/page-info') {
-    const sessionId = url.searchParams.get('session');
-    const pageId = url.searchParams.get('page_id');
-
-    if (!sessionId || !pageId) {
-      return Response.json({ error: 'Missing session or page_id parameter' }, { status: 400 });
+    if (request.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405, headers: { Allow: 'POST' } });
     }
-
-    // Get stored tokens
-    const tokens = await getStoredTokens(env, `session:${sessionId}`);
-
-    if (!tokens) {
-      return Response.json({ error: 'Session expired or invalid' }, { status: 404 });
+    const origin = request.headers.get('Origin');
+    if (!origin || origin !== new URL(env.SITE_URL).origin) {
+      return Response.json({ error: 'Invalid request origin' }, { status: 403 });
     }
+    const body: { page_id?: string } = await request.json();
+    const pageId = typeof body.page_id === 'string' ? body.page_id : null;
+    const connection = await getFacebookSubmitSession(request, env);
+    if (!pageId || !connection) {
+      return Response.json({ error: 'Missing page or expired connection' }, { status: 401 });
+    }
+    const managedPage = connection.session.pages.find(page => page.id === pageId);
+    if (!managedPage) return Response.json({ error: 'Page is not managed by this connection' }, { status: 403 });
 
     try {
-      // Get detailed page information
-      const pageInfo = await getPageInfo(pageId, tokens.access_token);
-
-      return Response.json({ pageInfo });
-    } catch (error) {
-      console.error('Error fetching page info:', error);
-      return Response.json({ error: 'Failed to fetch page information' }, { status: 500 });
+      const pageInfo = await getPageInfo(pageId, managedPage.access_token);
+      connection.session.selectedPage = pageInfo;
+      await env.CACHE.put(`fb_submit_session:${connection.id}`, JSON.stringify(connection.session), { expirationTtl: 3600 });
+      return Response.json({ pageInfo }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch {
+      console.error('Facebook Page lookup failed');
+      return Response.json({ error: 'Failed to fetch page information' }, { status: 502 });
     }
   }
 

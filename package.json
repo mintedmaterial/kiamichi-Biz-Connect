@@ -15,6 +15,7 @@
     "deploy:business": "cd workers/business-agent && npm run deploy",
     "schema:generate": "node ./scripts/build-schema.mjs",
     "check:schema": "node ./scripts/check-schema.mjs",
+    "check:auth": "node ./scripts/check-auth-contract.mjs",
     "smoke:main": "node ./scripts/smoke-main-worker.mjs",
     "seed:featured:local": "wrangler d1 execute kiamichi-biz-connect-db --local --file=./seeds/featured-pool.sql",
     "db:schema:local": "wrangler d1 execute kiamichi-biz-connect-db --local --file=./schema.sql",

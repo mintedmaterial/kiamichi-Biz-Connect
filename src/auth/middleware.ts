@@ -54,8 +54,7 @@ export async function withAdminAuth(
   const authResult = await requireAdminAuth(request, env, db);
 
   if (!authResult.authorized) {
-    // Redirect to Google login
-    return Response.redirect(new URL('/auth/google/login', request.url).toString(), 302);
+    return Response.redirect(new URL('/auth/github/login', request.url).toString(), 302);
   }
 
   // Call the protected handler with session data
