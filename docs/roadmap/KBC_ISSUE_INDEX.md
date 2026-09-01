@@ -10,6 +10,8 @@ This index maps the versioned roadmap IDs to their bounded GitHub implementation
 - [KBC-002: Make build, schema, and smoke checks authoritative](https://github.com/mintedmaterial/kiamichi-Biz-Connect/issues/21)
 - [KBC-003: Verify the live deployment graph](https://github.com/mintedmaterial/kiamichi-Biz-Connect/issues/22)
 
+Authoritative runtime baseline: [`docs/KBC-003-deployment-graph-inventory.md`](../KBC-003-deployment-graph-inventory.md). Later slices must refresh this graph when they change a Worker, route, binding, secret name, cron, Queue, Workflow, Durable Object, or storage resource.
+
 ## Listing templates
 
 - [KBC-101: Persist a template contract without changing the default UI](https://github.com/mintedmaterial/kiamichi-Biz-Connect/issues/23)
