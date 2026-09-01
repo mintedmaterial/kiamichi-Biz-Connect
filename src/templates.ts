@@ -658,7 +658,7 @@ const sponsoredPlacementTierCard = (title: string, fallback: { placementType: st
             <div class="text-sm text-gray-400">
                 ${current.isAvailable ? `Available now for ${formatMoney(current.priceCents)}. Your payment activates one guaranteed hour.` : `This placement is guaranteed through ${new Date(current.guaranteedUntil * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. After that, the next business can purchase the placement for ${formatMoney(current.takeoverPriceCents)}.`}
             </div>
-            <form id="${formId}" class="mt-6 space-y-4 rounded-2xl border border-white/10 bg-black/20 p-5">
+            <form id="${formId}" method="post" action="/api/sponsored-placements/${tierId}/checkout" class="mt-6 space-y-4 rounded-2xl border border-white/10 bg-black/20 p-5">
                 <div>
                     <label class="block text-sm font-semibold text-gray-200" for="${formId}-business">Business name</label>
                     <input id="${formId}-business" name="business_name" type="text" required autocomplete="organization" placeholder="Example: Twisted Custom Leather" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white placeholder:text-gray-500 focus:border-[#FFCB67] focus:outline-none">
@@ -680,57 +680,7 @@ const sponsoredPlacementTierCard = (title: string, fallback: { placementType: st
                 <button type="submit" ${current.isAvailable ? '' : 'disabled'} class="w-full rounded-lg bg-[#ED5409] px-5 py-3 font-bold text-white transition hover:bg-[#ff6a1f] disabled:cursor-not-allowed disabled:opacity-50">${current.isAvailable ? `Continue to Square — ${formatMoney(current.priceCents)}` : 'Available after guarantee ends'}</button>
                 <p id="${messageId}" class="text-sm text-gray-300" role="status">Square confirms payment server-side before we activate the placement. There is no recurring charge.</p>
             </form>
-            <script>
-                (() => {
-                    const form = document.getElementById('${formId}');
-                    const message = document.getElementById('${messageId}');
-                    const avatar = document.getElementById('${avatarId}');
-                    if (!form || !message) return;
-                    form.addEventListener('submit', async (event) => {
-                        event.preventDefault();
-                        const data = new FormData(form);
-                        const businessName = String(data.get('business_name') || '').trim();
-                        const contactEmail = String(data.get('contact_email') || '').trim();
-                        const businessLocation = String(data.get('business_location') || '').trim();
-                        if (!businessName || !contactEmail) {
-                            message.textContent = 'Enter a business name and contact email.';
-                            return;
-                        }
-                        const button = form.querySelector('button[type="submit"]');
-                        if (button) { button.disabled = true; button.textContent = 'Submitting...'; }
-                        if (avatar) avatar.src = '${BIGFOOT_POSES.thinking}';
-                        try {
-                            const response = await fetch('/api/sponsored-placements/${tierId}/checkout', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ business_name: businessName, contact_email: contactEmail, business_location: businessLocation })
-                            });
-                            const responseText = await response.text();
-                            let result: { error?: string; checkoutUrl?: string } = {};
-                            try {
-                                result = responseText ? JSON.parse(responseText) as { error?: string; checkoutUrl?: string } : {};
-                            } catch {
-                                result.error = responseText || 'Checkout request failed with status ' + response.status + '.';
-                            }
-                            if (!response.ok) throw new Error(result.error || 'Sponsored placement is not available yet');
-                            if (result.checkoutUrl) {
-                                message.innerHTML = 'Redirecting to Square checkout now. If nothing happens, <a class="text-[#FFCB67] underline" href="' + result.checkoutUrl + '" target="_blank" rel="noopener">continue to Square</a>.';
-                                if (button) { button.textContent = 'Redirecting to Square...'; }
-                                if (avatar) avatar.src = '${BIGFOOT_POSES.celebrate}';
-                                window.location.assign(result.checkoutUrl);
-                                return;
-                            }
-                            message.textContent = 'Checkout could not be started. Please try again.';
-                            if (avatar) avatar.src = '${BIGFOOT_POSES.celebrate}';
-                            if (button) { button.disabled = false; button.textContent = 'Continue to Square'; }
-                        } catch (error) {
-                            message.textContent = error instanceof Error ? error.message : 'Sponsored placement checkout failed. Please try again.';
-                            if (avatar) avatar.src = '${BIGFOOT_POSES.thinking}';
-                            if (button) { button.disabled = false; button.textContent = 'Continue to Square'; }
-                        }
-                    });
-                })();
-            </script>
+
         </div>
     `;
 };

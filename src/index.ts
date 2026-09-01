@@ -2339,7 +2339,11 @@ async function handleAPI(path: string, request: Request, db: DatabaseService, en
       if (!isSquareCheckoutConfigured(env)) {
         return Response.json({ error: 'Sponsored placement checkout is not configured yet. Please try again after Square setup is complete.' }, { status: 503 });
       }
-      const data = await request.json() as { business_name?: unknown; contact_email?: unknown; business_location?: unknown };
+      const contentType = request.headers.get('content-type') || '';
+      const isBrowserFormPost = contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data');
+      const data = isBrowserFormPost
+        ? Object.fromEntries((await request.formData()).entries())
+        : await request.json() as { business_name?: unknown; contact_email?: unknown; business_location?: unknown };
       const businessName = typeof data.business_name === 'string' ? data.business_name.trim().slice(0, 160) : '';
       const contactEmail = typeof data.contact_email === 'string' ? data.contact_email.trim().toLowerCase().slice(0, 255) : '';
       const businessLocation = typeof data.business_location === 'string' ? data.business_location.trim().slice(0, 160) : '';
@@ -2378,6 +2382,9 @@ async function handleAPI(path: string, request: Request, db: DatabaseService, en
         tierId: checkoutMatch[1],
         businessId: business.id
       });
+      if (isBrowserFormPost && result.status === 201 && typeof result.body.checkoutUrl === 'string') {
+        return Response.redirect(result.body.checkoutUrl, 303);
+      }
       return Response.json(result.body, { status: result.status });
     } catch (error) {
       console.error('Sponsored placement checkout creation failed:', error);
