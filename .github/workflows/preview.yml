@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install root dependencies
@@ -128,7 +128,7 @@ jobs:
 
             const comment = `## Preview Deployments
 
-            Your preview deployments are ready! :rocket:
+            Preview deployment results for this commit:
 
             | Worker | Status | URL |
             |--------|--------|-----|
@@ -180,6 +180,19 @@ jobs:
               });
             }
 
+      - name: Require successful preview deployments
+        if: always()
+        env:
+          MAIN_OUTCOME: ${{ steps.deploy-main.outcome }}
+          BUSINESS_AGENT_OUTCOME: ${{ steps.deploy-business-agent.outcome }}
+          ANALYZER_OUTCOME: ${{ steps.deploy-analyzer.outcome }}
+          FACEBOOK_OUTCOME: ${{ steps.deploy-facebook.outcome }}
+        run: |
+          test "$MAIN_OUTCOME" = "success"
+          test "$BUSINESS_AGENT_OUTCOME" = "success"
+          test "$ANALYZER_OUTCOME" = "success"
+          test "$FACEBOOK_OUTCOME" = "success"
+
   # Cleanup preview deployments when PR is closed
   cleanup-preview:
     name: Cleanup Preview
@@ -194,7 +207,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
