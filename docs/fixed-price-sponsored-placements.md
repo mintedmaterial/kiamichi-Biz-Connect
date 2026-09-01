@@ -12,7 +12,7 @@
 ## Payment lifecycle
 
 1. The advertiser enters business/contact details at `/advertise`.
-2. KBC creates a fixed-price Square Payment Link and saves a `checkout_pending` record.
+2. KBC creates a fixed-price Square Payment Link, saves a `checkout_pending` record, and sends the browser to the link with an HTTP 303 redirect. This is a standard form submission, so checkout does not depend on inline JavaScript initializing.
 3. Square calls `POST /api/webhooks/square` after completion.
 4. KBC validates the Square signature against the exact subscription URL, verifies the final payment amount, then creates the active `ad_placements` record for one hour.
 5. A conflicting payment that arrives after a newly activated guarantee is persisted as `manual_refund_required`; it is not silently activated.
