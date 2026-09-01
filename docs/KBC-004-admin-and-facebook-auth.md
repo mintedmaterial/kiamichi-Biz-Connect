@@ -39,6 +39,7 @@ The browser may edit normal listing fields after auto-fill. Trust-sensitive prov
 - The connection identifier is a `Secure`, `HttpOnly`, `SameSite=Lax`, host-only cookie with a one-hour maximum age.
 - A successful submission deletes the short-lived KV session and expires the cookie.
 - The pending submission records `facebook_connection.source = meta_oauth_managed_page`, Page ID, Page name, and connection time.
+- Approval requires `facebook_connection.source = meta_oauth_managed_page` and copies only a numeric server-validated Page ID into `businesses.facebook_page_id`. Downstream presentation and Facebook automation prefer that immutable identity, reject malformed stored IDs, and use a canonical Facebook Page URL for ID-only listings. Legacy rows without a valid stored Page ID may fall back to a nonempty URL, and successful enrichment backfills the authoritative column.
 - Public clients cannot submit `is_verified`, Google rating, Google review count, Facebook rating, or Facebook review count as authoritative values. Facebook rating metadata is accepted only from the selected server-validated Page response.
 - Approval remains a human admin action. No external publication occurs from this flow.
 
@@ -60,6 +61,15 @@ Create a dedicated self-hosted Access application only after the reviewed Worker
 Do not protect `/submit`, `/auth/facebook`, or `/auth/facebook/callback` with this Access application. Do not use an account-wide, zone-wide, or all-Workers destination.
 
 Access does not replace application authorization. The Worker must continue to require D1 `site_admins` membership after GitHub identity resolution.
+
+## Pull-request preview boundary
+
+- Preview CI runs on Node.js 22 and fails unless all four Worker preview deployments succeed.
+- Main, Business Agent, Analyzer, and Facebook preview Workers bind only to `kiamichi-biz-connect-preview-db`, `kiamichi-biz-connect-preview-CACHE`, preview R2 buckets, and preview service names.
+- Analyzer and Facebook preview environments have empty cron schedules. The Analyzer also disables automatic updates and Code Mode.
+- Preview deployments do not copy admin, OAuth, Facebook login, or Facebook app secrets. A separate GitHub OAuth App and preview callback registration are required before GitHub login-start/callback can be accepted as a preview-runtime auth proof.
+- The Business Agent build must run with `CLOUDFLARE_ENV=preview`; otherwise its Vite-generated redirected Wrangler config resolves production bindings before the deploy command runs.
+- Preview Workers use `workers.dev` only and declare no production custom-domain routes.
 
 ## Release and verification gates
 

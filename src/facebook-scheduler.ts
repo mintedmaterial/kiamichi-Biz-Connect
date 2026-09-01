@@ -1,4 +1,5 @@
 import type { FacebookContentQueue } from './types';
+import { hasFacebookIdentity } from './utils';
 
 function makeContentHash(input: string): Promise<string> {
   return crypto.subtle.digest('SHA-256', new TextEncoder().encode(input)).then((buf) =>
@@ -15,7 +16,7 @@ export async function populateContentQueue(env: any): Promise<{ created: number;
 
   const businesses = await db
     .prepare(`
-      SELECT id, name, slug, city, state, description, facebook_url, image_url
+      SELECT id, name, slug, city, state, description, facebook_url, facebook_page_id, image_url
       FROM businesses
       WHERE is_active = 1
       ORDER BY RANDOM()
@@ -63,7 +64,7 @@ export async function populateContentQueue(env: any): Promise<{ created: number;
       `)
       .bind(
         'business_spotlight',
-        business.facebook_url ? 'both' : 'page',
+        hasFacebookIdentity(business.facebook_page_id, business.facebook_url) ? 'both' : 'page',
         business.id,
         message,
         link,

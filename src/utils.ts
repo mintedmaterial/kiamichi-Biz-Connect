@@ -2,6 +2,25 @@
  * Utility functions for KiamichiBizConnect
  */
 
+export function isValidFacebookPageId(value: unknown): value is string {
+  return typeof value === 'string' && /^\d+$/.test(value);
+}
+
+export function hasFacebookIdentity(pageId: unknown, facebookUrl: unknown): boolean {
+  return isValidFacebookPageId(pageId)
+    || (typeof facebookUrl === 'string' && facebookUrl.trim().length > 0);
+}
+
+export function getFacebookPageUrl(pageId: unknown, facebookUrl: unknown): string | null {
+  if (isValidFacebookPageId(pageId)) {
+    return `https://www.facebook.com/${pageId}`;
+  }
+
+  return typeof facebookUrl === 'string' && facebookUrl.trim().length > 0
+    ? facebookUrl.trim()
+    : null;
+}
+
 /**
  * Extracts Facebook page ID or username from various Facebook URL formats
  * and returns a Graph API picture URL

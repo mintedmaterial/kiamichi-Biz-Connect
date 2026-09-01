@@ -14,6 +14,7 @@ import { populateContentQueue, getQueueStatus, getAnalyticsSummary } from '../..
 import type { FacebookContentQueue, FacebookPostInsights } from '../../../src/types';
 import { postToPage as officialPostToPage, postToGroup as officialPostToGroup } from './fb-official-api';
 import { processComments } from '../../../src/facebook-comment-monitor';
+import { hasFacebookIdentity, isValidFacebookPageId } from '../../../src/utils';
 import { rotateFeaturedBusinesses, getFeaturedStatus, manuallyFeatureBusiness, lockSlot, unlockSlot, getFeaturedTierMembers, addToFeaturedTier, removeFromFeaturedTier } from './featured-rotation';
 import { generateVIPPost, getVIPBusinessesForPosting, processVIPBusinesses } from './vip-posts';
 
@@ -321,6 +322,7 @@ export default {
           }
 
           console.log(`[Test] Generating post for: ${business.name}`);
+          const businessHasFacebookIdentity = hasFacebookIdentity(business.facebook_page_id, business.facebook_url);
 
           // STEP 1: Generate content with real Workers AI
           console.log('[Test] Step 1: Generating AI content...');
@@ -340,7 +342,7 @@ WRITING STYLE:
 - Use casual language and local flavor
 - NO hashtags, NO emoji spam, NO corporate buzzwords
 - Add personal touches ("seriously", "honestly", "I'm telling you")
-${business.facebook_url
+${businessHasFacebookIdentity
   ? `- IMPORTANT: Tag the business using @${business.name.replace(/\s+/g, '')} (remove ALL spaces!) - they have a Facebook page and you follow them!
 - Example: @${business.name.replace(/\s+/g, '')} (no spaces allowed in tags!)`
   : '- Mention the business by name, but DON\'T use @tag (they don\'t have a Facebook page)'
@@ -357,7 +359,7 @@ ${business.google_rating ? `They've got ${business.google_rating} stars from ${b
 
 Write like you're genuinely excited to tell people about this place. Start with something that grabbed your attention about them. Keep it real and conversational.
 
-${business.facebook_url
+${businessHasFacebookIdentity
   ? `IMPORTANT: Tag the business by writing @${business.name.replace(/\s+/g, '')} (remove ALL spaces from the name!) somewhere naturally. They're on Facebook!`
   : `Mention ${business.name} naturally but DON'T use @tag since they don't have a Facebook page.`
 }
@@ -1571,9 +1573,9 @@ async function enrichAllBusinesses(env: any) {
   const staleTime = Math.floor(Date.now() / 1000) - 86400;
   const businesses = await db
     .prepare(`
-      SELECT id, name, facebook_url
+      SELECT id, name, facebook_url, facebook_page_id
       FROM businesses
-      WHERE facebook_url IS NOT NULL
+      WHERE ((facebook_page_id <> '' AND facebook_page_id NOT GLOB '*[^0-9]*') OR TRIM(COALESCE(facebook_url, '')) <> '')
         AND is_active = 1
         AND (last_facebook_enrichment IS NULL OR last_facebook_enrichment < ?)
       LIMIT 50
@@ -1615,15 +1617,21 @@ async function enrichSingleBusiness(env: any, businessId: number) {
     .bind(businessId)
     .first();
 
-  if (!biz || !biz.facebook_url) {
-    throw new Error('Business not found or no Facebook URL');
+  if (!biz) {
+    throw new Error('Business not found');
   }
 
   try {
-    // Extract page ID
-    const pageId = await extractPageIdFromUrl(biz.facebook_url, token);
+    // Prefer the immutable Page ID captured from the managed-Page OAuth flow.
+    // URL extraction remains only as a compatibility path for legacy listings.
+    const storedPageId = isValidFacebookPageId(biz.facebook_page_id)
+      ? biz.facebook_page_id
+      : null;
+    const pageId = storedPageId || (biz.facebook_url
+      ? await extractPageIdFromUrl(biz.facebook_url, token)
+      : null);
     if (!pageId) {
-      throw new Error('Could not extract page ID');
+      throw new Error('Business has no valid Facebook Page identity');
     }
 
     // Fetch page info and posts

@@ -1,14 +1,15 @@
 import { Env, Business, Category, AdPlacement, SearchParams, PaginatedResponse } from './types';
-import { getFacebookImageUrl } from './utils';
+import { getFacebookImageUrl, getFacebookPageUrl } from './utils';
 
 export class DatabaseService {
   constructor(public db: D1Database) {}
 
   // Helper to enrich business with Facebook image URL
   private enrichBusinessWithFacebookImage(business: Business): Business {
-    if (business.facebook_url && !business.image_url) {
+    const facebookPageUrl = getFacebookPageUrl(business.facebook_page_id, business.facebook_url);
+    if (facebookPageUrl && !business.image_url) {
       // Add facebook_image_url as a computed property
-      (business as any).facebook_image_url = getFacebookImageUrl(business.facebook_url);
+      (business as Business & { facebook_image_url?: string }).facebook_image_url = getFacebookImageUrl(facebookPageUrl);
     }
     return business;
   }
@@ -201,10 +202,10 @@ export class DatabaseService {
           name, slug, description, category_id, email, phone, website,
           address_line1, address_line2, city, state, zip_code,
           latitude, longitude, service_area,
-          facebook_url, google_business_url, image_url,
+          facebook_url, facebook_page_id, google_business_url, image_url,
           google_rating, google_review_count, facebook_rating, facebook_review_count,
           is_verified, is_featured, is_active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         // Coerce undefined => null for D1 compatibility
@@ -226,6 +227,7 @@ export class DatabaseService {
         business.service_area ?? null,
         // social
         business.facebook_url ?? null,
+        business.facebook_page_id ?? null,
         business.google_business_url ?? null,
         business.image_url ?? null,
         // ratings/reviews
@@ -514,6 +516,7 @@ export class DatabaseService {
     if (updates.longitude !== undefined) { keys.push('longitude = ?'); values.push(updates.longitude); }
     if (updates.service_area !== undefined) { keys.push('service_area = ?'); values.push(updates.service_area); }
     if (updates.facebook_url !== undefined) { keys.push('facebook_url = ?'); values.push(updates.facebook_url); }
+    if (updates.facebook_page_id !== undefined) { keys.push('facebook_page_id = ?'); values.push(updates.facebook_page_id); }
     if (updates.google_business_url !== undefined) { keys.push('google_business_url = ?'); values.push(updates.google_business_url); }
     if (updates.google_rating !== undefined) { keys.push('google_rating = ?'); values.push(updates.google_rating); }
     if (updates.google_review_count !== undefined) { keys.push('google_review_count = ?'); values.push(updates.google_review_count); }

@@ -3,6 +3,7 @@
 
 import type { ContentGenerationContext, Env } from './types';
 import { generateBusinessSpotlightWithMascot, shouldIncludeMascot } from './bigfoot-mascot';
+import { hasFacebookIdentity } from './utils';
 
 /**
  * Enhanced generate post content with mascot integration
@@ -146,7 +147,7 @@ ${ratingText}
 
 Write like you're genuinely excited to tell people about this place. Start with something that grabbed your attention about them. Keep it real and conversational.
 
-${business.facebook_url
+${hasFacebookIdentity(business.facebook_page_id, business.facebook_url)
   ? `IMPORTANT: Tag the business using @${business.name.replace(/\s+/g, '')} (remove ALL spaces!)`
   : `Mention ${business.name} naturally but DON'T use @tag since they don't have a Facebook page`
 }

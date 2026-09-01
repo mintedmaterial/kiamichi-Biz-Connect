@@ -30,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install root dependencies
@@ -44,14 +44,6 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --env preview
-          secrets: |
-            ADMIN_KEY
-            GOOGLE_CLIENT_SECRET
-            FACEBOOK_APP_SECRET
-        env:
-          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
         continue-on-error: true
 
       # Deploy business-agent preview
@@ -62,6 +54,8 @@ jobs:
       - name: Build business-agent
         working-directory: workers/business-agent
         run: npm run build
+        env:
+          CLOUDFLARE_ENV: preview
 
       - name: Deploy Business Agent Preview
         id: deploy-business-agent
@@ -71,12 +65,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/business-agent
           command: deploy --env preview
-          secrets: |
-            GOOGLE_CLIENT_SECRET
-            FACEBOOK_APP_SECRET
-        env:
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
         continue-on-error: true
 
       # Deploy analyzer preview
@@ -107,14 +95,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/facebook-worker
           command: deploy --env preview
-          secrets: |
-            FB_EMAIL
-            FB_PASSWORD
-            FACEBOOK_APP_SECRET
-        env:
-          FB_EMAIL: ${{ secrets.FB_EMAIL }}
-          FB_PASSWORD: ${{ secrets.FB_PASSWORD }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
         continue-on-error: true
 
       # Comment on PR with preview URLs
@@ -128,12 +108,12 @@ jobs:
 
             const comment = `## Preview Deployments
 
-            Your preview deployments are ready! :rocket:
+            Preview deployment results for this commit:
 
             | Worker | Status | URL |
             |--------|--------|-----|
-            | Main Worker | ${{ steps.deploy-main.outcome }} | [Preview](https://kiamichi-biz-connect-preview.workers.dev) |
-            | Business Agent | ${{ steps.deploy-business-agent.outcome }} | [Preview](https://kiamichi-business-agent-preview.workers.dev) |
+            | Main Worker | ${{ steps.deploy-main.outcome }} | [Preview](https://kiamichi-biz-connect-preview.srvcflo.workers.dev) |
+            | Business Agent | ${{ steps.deploy-business-agent.outcome }} | [Preview](https://kiamichi-business-agent-preview.srvcflo.workers.dev) |
             | Analyzer Worker | ${{ steps.deploy-analyzer.outcome }} | Background worker |
             | Facebook Worker | ${{ steps.deploy-facebook.outcome }} | Background worker |
 
@@ -180,6 +160,19 @@ jobs:
               });
             }
 
+      - name: Require successful preview deployments
+        if: always()
+        env:
+          MAIN_OUTCOME: ${{ steps.deploy-main.outcome }}
+          BUSINESS_AGENT_OUTCOME: ${{ steps.deploy-business-agent.outcome }}
+          ANALYZER_OUTCOME: ${{ steps.deploy-analyzer.outcome }}
+          FACEBOOK_OUTCOME: ${{ steps.deploy-facebook.outcome }}
+        run: |
+          test "$MAIN_OUTCOME" = "success"
+          test "$BUSINESS_AGENT_OUTCOME" = "success"
+          test "$ANALYZER_OUTCOME" = "success"
+          test "$FACEBOOK_OUTCOME" = "success"
+
   # Cleanup preview deployments when PR is closed
   cleanup-preview:
     name: Cleanup Preview
@@ -194,7 +187,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
