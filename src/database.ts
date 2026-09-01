@@ -170,8 +170,17 @@ export class DatabaseService {
     const now = Math.floor(Date.now() / 1000);
     const { results } = await this.db
       .prepare(`
-        SELECT a.*, b.* FROM ad_placements a
+        SELECT a.*, b.*,
+          c.headline AS sponsored_headline,
+          c.body_text AS sponsored_body_text,
+          c.offer_text AS sponsored_offer_text,
+          c.cta_label AS sponsored_cta_label,
+          c.cta_url AS sponsored_cta_url,
+          c.image_url AS sponsored_image_url
+        FROM ad_placements a
         INNER JOIN businesses b ON a.business_id = b.id
+        LEFT JOIN sponsored_placement_purchases p ON p.ad_placement_id = a.id
+        LEFT JOIN sponsored_placement_creatives c ON c.purchase_id = p.id
         WHERE a.placement_type = ? 
           AND a.is_active = 1 
           AND a.start_date <= ? 

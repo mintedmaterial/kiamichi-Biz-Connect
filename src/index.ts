@@ -1,6 +1,6 @@
 import { Env, Business } from './types';
 import { DatabaseService } from './database';
-import { aboutPageContent, advertisePageContent, htmlTemplate, homepageContent, pricingHubPageContent, pricingPageContent } from './templates';
+import { aboutPageContent, advertisePageContent, htmlTemplate, homepageContent, pricingHubPageContent, pricingPageContent, sponsoredPlacementSetupPageContent } from './templates';
 import { handleAdminPage } from './admin';
 import {
   getFacebookLoginUrl,
@@ -16,8 +16,14 @@ import {
 } from './auth/github';
 import { requireAdminAuth } from './auth/middleware';
 import { runAutomatedDailyBlog } from './workers/blogWorker';
-import { getAuctionStatus } from './auction-service';
-import { createSponsoredAuctionBid, handleSquareWebhook, isSquareCheckoutConfigured } from './square-auctions';
+import {
+  createSponsoredPlacementCheckout,
+  getSponsoredPlacementSetup,
+  getSponsoredPlacementStatus,
+  handleSponsoredPlacementSquareWebhook,
+  isSquareCheckoutConfigured,
+  saveSponsoredPlacementCreative
+} from './sponsored-placements';
 
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -303,6 +309,20 @@ Disallow: /auth/*`, {
         return new Response(htmlTemplate('About Us', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
+      // Token-gated advertiser creative setup. Square redirects here after checkout.
+      if (path === '/advertise/setup') {
+        const purchaseId = Number(url.searchParams.get('purchase'));
+        const token = url.searchParams.get('token') || '';
+        if (!Number.isSafeInteger(purchaseId) || purchaseId <= 0 || !token) {
+          return new Response('Placement setup link not found', { status: 404 });
+        }
+        const setup = await getSponsoredPlacementSetup(env.DB, purchaseId, token);
+        if (!setup) return new Response('Placement setup link not found', { status: 404 });
+        return new Response(htmlTemplate('Build Your Sponsored Placement', sponsoredPlacementSetupPageContent({ purchaseId, token, setup }), env), {
+          headers: { 'Content-Type': 'text/html' }
+        });
+      }
+
       // Advertising page
       if (path === '/advertise') {
         if (!(await isAuctionAdsEnabled(env))) {
@@ -311,21 +331,21 @@ Disallow: /auth/*`, {
             status: 503
           });
         }
-        let localAuction = null;
-        let regionalAuction = null;
+        let localPlacement = null;
+        let regionalPlacement = null;
         try {
-          [localAuction, regionalAuction] = await Promise.all([
-            getAuctionStatus(env.DB, 'local-spotlight'),
-            getAuctionStatus(env.DB, 'regional-spotlight')
+          [localPlacement, regionalPlacement] = await Promise.all([
+            getSponsoredPlacementStatus(env.DB, 'local-spotlight'),
+            getSponsoredPlacementStatus(env.DB, 'regional-spotlight')
           ]);
         } catch (error) {
-          console.warn('Auction status unavailable; using fallback preview values', error);
+          console.warn('Sponsored placement status unavailable; using fallback preview values', error);
         }
-        const content = advertisePageContent({ localAuction, regionalAuction });
+        const content = advertisePageContent({ localPlacement, regionalPlacement });
         return new Response(htmlTemplate('Advertise', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
-      // Auction advertising pricing page
+      // Sponsored placement pricing page
       if (path === '/advertise/pricing') {
         if (!(await isAuctionAdsEnabled(env))) {
           return new Response(htmlTemplate('Pricing', pricingHubPageContent(), env), {
@@ -333,18 +353,18 @@ Disallow: /auth/*`, {
             status: 503
           });
         }
-        let localAuction = null;
-        let regionalAuction = null;
+        let localPlacement = null;
+        let regionalPlacement = null;
         try {
-          [localAuction, regionalAuction] = await Promise.all([
-            getAuctionStatus(env.DB, 'local-spotlight'),
-            getAuctionStatus(env.DB, 'regional-spotlight')
+          [localPlacement, regionalPlacement] = await Promise.all([
+            getSponsoredPlacementStatus(env.DB, 'local-spotlight'),
+            getSponsoredPlacementStatus(env.DB, 'regional-spotlight')
           ]);
         } catch (error) {
-          console.warn('Auction pricing unavailable; using fallback preview values', error);
+          console.warn('Sponsored placement pricing unavailable; using fallback preview values', error);
         }
-        const content = pricingPageContent({ localAuction, regionalAuction });
-        return new Response(htmlTemplate('Auction Ad Pricing', content, env), { headers: { 'Content-Type': 'text/html' } });
+        const content = pricingPageContent({ localPlacement, regionalPlacement });
+        return new Response(htmlTemplate('Sponsored Placement Pricing', content, env), { headers: { 'Content-Type': 'text/html' } });
       }
 
       // Pricing page
@@ -2050,13 +2070,13 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
   });
 
   let sidebarPlacements: any[] = [];
-  let localAuction: any = null;
-  let regionalAuction: any = null;
+  let localPlacement: any = null;
+  let regionalPlacement: any = null;
   try {
-    [sidebarPlacements, localAuction, regionalAuction] = await Promise.all([
+    [sidebarPlacements, localPlacement, regionalPlacement] = await Promise.all([
       db.getActiveAdPlacements('sidebar'),
-      getAuctionStatus(env.DB, 'local-spotlight'),
-      getAuctionStatus(env.DB, 'regional-spotlight')
+      getSponsoredPlacementStatus(env.DB, 'local-spotlight'),
+      getSponsoredPlacementStatus(env.DB, 'regional-spotlight')
     ]);
   } catch (error) {
     console.warn('Blog sidebar ads unavailable; using fallback inventory cards', error);
@@ -2077,27 +2097,27 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
       <span class="inline-block mt-4 sonic-orange font-semibold">View sponsor →</span>
     </a>`;
 
-  const auctionFallback = (title: string, status: any, sticky = false) => {
-    const current = status || { tier: { label: title, placement_type: 'sidebar', floor_cents: title === 'Regional Spotlight' ? 2500 : 500 }, openingBidCents: title === 'Regional Spotlight' ? 2500 : 500, currentBidCents: title === 'Regional Spotlight' ? 2500 : 500, paymentStatus: 'pending-square', currentBusinessId: null };
+  const placementFallback = (title: string, status: any, sticky = false) => {
+    const current = status || { tier: { label: title, placement_type: 'sidebar', floor_cents: title === 'Regional Spotlight' ? 2500 : 500 }, priceCents: title === 'Regional Spotlight' ? 2500 : 500, isAvailable: true, guaranteedUntil: null };
     return `
       <div class="glow-card p-6 ${sticky ? 'sticky top-24' : ''}">
         <div class="flex items-center justify-between mb-3">
-          <span class="text-xs font-bold uppercase tracking-widest text-[#ED5409]">Auction inventory</span>
-          <span class="text-xs text-secondary">${current.paymentStatus}</span>
+          <span class="text-xs font-bold uppercase tracking-widest text-[#ED5409]">Sponsored placement</span>
+          <span class="text-xs text-secondary">${current.isAvailable ? 'Available now' : 'Guarantee active'}</span>
         </div>
         <h3 class="text-xl font-bold text-primary mb-2">${current.tier.label}</h3>
-        <p class="text-gray-300 mb-4">Live sponsored placement is available through the auction. Square payment verification keeps the slot pending until confirmed.</p>
+        <p class="text-gray-300 mb-4">Square verifies payment server-side before this sponsored placement becomes active. No bidding or recurring charge.</p>
         <div class="grid grid-cols-2 gap-3 mb-4">
           <div class="rounded-xl bg-black/20 border border-white/5 p-4">
-            <div class="text-xs uppercase tracking-widest text-secondary">Floor</div>
+            <div class="text-xs uppercase tracking-widest text-secondary">Start price</div>
             <div class="text-2xl font-bold mt-1 text-[#FFCB67]">$${(current.tier.floor_cents / 100).toFixed(2)}</div>
           </div>
           <div class="rounded-xl bg-black/20 border border-white/5 p-4">
-            <div class="text-xs uppercase tracking-widest text-secondary">Current</div>
-            <div class="text-2xl font-bold mt-1 text-[#FFCB67]">$${(current.currentBidCents / 100).toFixed(2)}</div>
+            <div class="text-xs uppercase tracking-widest text-secondary">Checkout price</div>
+            <div class="text-2xl font-bold mt-1 text-[#FFCB67]">$${(current.priceCents / 100).toFixed(2)}</div>
           </div>
         </div>
-        <div class="text-sm text-gray-400 mb-4">${current.currentBusinessId ? 'This slot is occupied' : 'No current winner yet'}</div>
+        <div class="text-sm text-gray-400 mb-4">${current.isAvailable ? 'Available for a guaranteed one-hour placement' : 'Available when the current guarantee ends'}</div>
         <div class="flex gap-3 flex-wrap">
           <a href="/advertise" class="btn-glow text-white px-5 py-3 rounded-lg font-semibold inline-block">Advertise</a>
           <a href="/pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-5 py-3 rounded-lg font-semibold inline-block hover:bg-[#ED5409]/10 transition-colors">Pricing</a>
@@ -2179,7 +2199,7 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
 
           <!-- Sidebar with Sponsored Placements -->
           <aside class="lg:col-span-4 space-y-6">
-            ${sidebarPlacements[0] ? sidebarAd(sidebarPlacements[0]) : auctionFallback('Local Spotlight', localAuction)}
+            ${sidebarPlacements[0] ? sidebarAd(sidebarPlacements[0]) : placementFallback('Local Spotlight', localPlacement)}
 
             <!-- Popular Posts -->
             <div class="glow-card p-6">
@@ -2204,8 +2224,8 @@ async function handleBlogPost(slug: string, db: DatabaseService, env: Env): Prom
               </div>
             </div>
 
-            ${sidebarPlacements[1] ? sidebarAd(sidebarPlacements[1]) : auctionFallback('Regional Spotlight', regionalAuction)}
-            ${sidebarPlacements[2] ? sidebarAd(sidebarPlacements[2], true) : auctionFallback('Regional Spotlight', regionalAuction, true)}
+            ${sidebarPlacements[1] ? sidebarAd(sidebarPlacements[1]) : placementFallback('Regional Spotlight', regionalPlacement)}
+            ${sidebarPlacements[2] ? sidebarAd(sidebarPlacements[2], true) : placementFallback('Regional Spotlight', regionalPlacement, true)}
           </aside>
         </div>
       </div>
@@ -2256,34 +2276,75 @@ async function getAuctionAdsFlagState(env: Env): Promise<Record<string, unknown>
 
 // API handler (for future AJAX endpoints)
 async function handleAPI(path: string, request: Request, db: DatabaseService, env: Env): Promise<Response> {
-  if ((path.startsWith('/api/auctions/') || path === '/api/webhooks/square') && !(await isAuctionAdsEnabled(env))) {
-    return Response.json({ error: 'Auction ads are temporarily unavailable' }, { status: 503 });
+  if ((path.startsWith('/api/sponsored-placements/') || path === '/api/webhooks/square') && !(await isAuctionAdsEnabled(env))) {
+    return Response.json({ error: 'Sponsored placements are temporarily unavailable' }, { status: 503 });
   }
 
-  // Public read-only auction status. Bid activation remains disabled until
-  // Square payment verification is wired through the server-side webhook.
-  const auctionMatch = path.match(/^\/api\/auctions\/([a-z0-9-]+)\/status$/);
-  if (auctionMatch && request.method === 'GET') {
-    const status = await getAuctionStatus(env.DB, auctionMatch[1]);
-    if (!status) return Response.json({ error: 'Auction tier not found' }, { status: 404 });
+  const placementStatusMatch = path.match(/^\/api\/sponsored-placements\/([a-z0-9-]+)\/status$/);
+  if (placementStatusMatch && request.method === 'GET') {
+    const status = await getSponsoredPlacementStatus(env.DB, placementStatusMatch[1]);
+    if (!status) return Response.json({ error: 'Sponsored placement tier not found' }, { status: 404 });
     return Response.json(status, {
       headers: { 'Cache-Control': 'public, max-age=30' }
     });
   }
 
-  const bidMatch = path.match(/^\/api\/auctions\/([a-z0-9-]+)\/bids$/);
-  if (bidMatch && request.method === 'POST') {
+  const setupMatch = path.match(/^\/api\/sponsored-placements\/setup\/(\d+)$/);
+  if (setupMatch && (request.method === 'GET' || request.method === 'PUT')) {
+    const purchaseId = Number(setupMatch[1]);
+    const token = new URL(request.url).searchParams.get('token') || '';
+    if (!token) return Response.json({ error: 'Placement setup link not found.' }, { status: 404 });
+    if (request.method === 'GET') {
+      const setup = await getSponsoredPlacementSetup(env.DB, purchaseId, token);
+      if (!setup) return Response.json({ error: 'Placement setup link not found.' }, { status: 404 });
+      return Response.json(setup);
+    }
+    const contentType = request.headers.get('content-type') || '';
+    const form = contentType.includes('multipart/form-data') ? await request.formData() : null;
+    const body = form ? Object.fromEntries(form.entries()) : await request.json() as Record<string, unknown>;
+    const text = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+    const headline = text(body.headline, 80);
+    const bodyText = text(body.body_text, 300);
+    const offerText = text(body.offer_text, 140) || null;
+    const ctaLabel = text(body.cta_label, 32);
+    const ctaUrl = text(body.cta_url, 500) || null;
+    if (!headline || !bodyText || !ctaLabel || (ctaUrl && !/^https:\/\//i.test(ctaUrl))) {
+      return Response.json({ error: 'Headline, ad text, CTA label, and an optional HTTPS CTA URL are required.' }, { status: 400 });
+    }
+    const setup = await getSponsoredPlacementSetup(env.DB, purchaseId, token);
+    if (!setup) return Response.json({ error: 'Placement setup link not found.' }, { status: 404 });
+    let imageUrl: string | null = null;
+    let imageKey: string | null = null;
+    const image = form?.get('image');
+    if (image instanceof File && image.size > 0) {
+      const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+      if (!allowedTypes.has(image.type) || image.size > 5 * 1024 * 1024) {
+        return Response.json({ error: 'Upload a JPG, PNG, or WebP image no larger than 5 MB.' }, { status: 400 });
+      }
+      const extension = image.type === 'image/png' ? 'png' : image.type === 'image/webp' ? 'webp' : 'jpg';
+      imageKey = `sponsored-placements/${purchaseId}/${crypto.randomUUID()}.${extension}`;
+      await env.BUSINESS_IMAGES.put(imageKey, image.stream(), {
+        httpMetadata: { contentType: image.type, cacheControl: 'public, max-age=31536000, immutable' }
+      });
+      imageUrl = `${env.BUSINESS_IMAGES_PUBLIC_URL}/${imageKey}`;
+    }
+    const saved = await saveSponsoredPlacementCreative(env.DB, purchaseId, token, { headline, body_text: bodyText, offer_text: offerText, cta_label: ctaLabel, cta_url: ctaUrl, image_url: imageUrl, image_key: imageKey });
+    if (!saved.ok) return Response.json({ error: saved.error }, { status: saved.status });
+    return Response.json({ ok: true });
+  }
+
+  const checkoutMatch = path.match(/^\/api\/sponsored-placements\/([a-z0-9-]+)\/checkout$/);
+  if (checkoutMatch && request.method === 'POST') {
     try {
       if (!isSquareCheckoutConfigured(env)) {
-        return Response.json({ error: 'Auction checkout is not configured yet. Please try again after Square setup is complete.' }, { status: 503 });
+        return Response.json({ error: 'Sponsored placement checkout is not configured yet. Please try again after Square setup is complete.' }, { status: 503 });
       }
-      const data = await request.json() as { business_name?: unknown; contact_email?: unknown; business_location?: unknown; bid_cents?: unknown; bidCents?: unknown };
+      const data = await request.json() as { business_name?: unknown; contact_email?: unknown; business_location?: unknown };
       const businessName = typeof data.business_name === 'string' ? data.business_name.trim().slice(0, 160) : '';
       const contactEmail = typeof data.contact_email === 'string' ? data.contact_email.trim().toLowerCase().slice(0, 255) : '';
       const businessLocation = typeof data.business_location === 'string' ? data.business_location.trim().slice(0, 160) : '';
-      const bidCents = Number(data.bid_cents ?? data.bidCents);
-      if (!businessName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail) || !Number.isInteger(bidCents) || bidCents <= 0) {
-        return Response.json({ error: 'business_name, contact_email, and bid_cents are required' }, { status: 400 });
+      if (!businessName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+        return Response.json({ error: 'business_name and contact_email are required' }, { status: 400 });
       }
 
       let business = await env.DB.prepare(`
@@ -2309,24 +2370,23 @@ async function handleAPI(path: string, request: Request, db: DatabaseService, en
       if (!business.id) return Response.json({ error: 'Could not create advertiser record' }, { status: 500 });
       await env.DB.prepare(`
         INSERT INTO advertiser_accounts (business_id, status, plan, contact_email, advertised_name)
-        VALUES (?, 'pending', 'auction-only', ?, ?)
+        VALUES (?, 'pending', 'sponsored-placement', ?, ?)
         ON CONFLICT(business_id) DO UPDATE SET contact_email = excluded.contact_email, advertised_name = excluded.advertised_name, updated_at = unixepoch()
       `).bind(business.id, contactEmail, businessName).run();
 
-      const result = await createSponsoredAuctionBid(db, env, {
-        tierId: bidMatch[1],
-        businessId: business.id,
-        bidCents
+      const result = await createSponsoredPlacementCheckout(db, env, {
+        tierId: checkoutMatch[1],
+        businessId: business.id
       });
       return Response.json(result.body, { status: result.status });
     } catch (error) {
-      console.error('Auction bid creation failed:', error);
-      return Response.json({ error: 'Failed to create auction bid' }, { status: 500 });
+      console.error('Sponsored placement checkout creation failed:', error);
+      return Response.json({ error: 'Failed to create sponsored placement checkout' }, { status: 500 });
     }
   }
 
   if (path === '/api/webhooks/square' && request.method === 'POST') {
-    return handleSquareWebhook(db, env, request);
+    return handleSponsoredPlacementSquareWebhook(db, env, request);
   }
 
   const claimMatch = path.match(/^\/api\/businesses\/(\d+)\/claim$/);

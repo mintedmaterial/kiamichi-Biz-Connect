@@ -20,6 +20,8 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title} | ${env.SITE_NAME}</title>
     <meta name="description" content="Find local service businesses in Southeast Oklahoma, Northeast Texas, and Southwest Arkansas">
+    <link rel="icon" type="image/png" href="${BIGFOOT_POSES.thumbsUp}">
+    <link rel="apple-touch-icon" href="${BIGFOOT_POSES.thumbsUp}">
     ${extraHead}
         <script src="https://cdn.tailwindcss.com"></script>
         <script>
@@ -395,7 +397,7 @@ export const htmlTemplate = (title: string, content: string, env: any, extraHead
                     <h4 class="font-bold mb-4 sonic-gold">For Businesses</h4>
                     <ul class="space-y-2">
                         <li><a href="/submit" class="text-gray-400 hover:text-[#FFCB67] transition-colors">List Your Business</a></li>
-                        <li><a href="/advertise#auction-bids" class="text-gray-400 hover:text-[#FFCB67] transition-colors">Advertise</a></li>
+                        <li><a href="/advertise#sponsored-placements" class="text-gray-400 hover:text-[#FFCB67] transition-colors">Advertise</a></li>
                         <li><a href="/pricing" class="text-gray-400 hover:text-[#FFCB67] transition-colors">Pricing</a></li>
                     </ul>
                 </div>
@@ -498,15 +500,16 @@ export const homepageContent = (data: any) => `
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             ${data.sponsored.map((business: any) => `
                 <a href="/business/${business.slug}" class="glow-card border-2 border-[#ED5409]/50" aria-label="Sponsored: ${business.name}">
+                    ${business.sponsored_image_url ? `<img src="${business.sponsored_image_url}" alt="${business.sponsored_headline || business.name}" class="h-48 w-full object-cover" loading="lazy">` : ''}
                     <div class="p-6">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-xs font-bold uppercase tracking-widest text-[#ED5409]">Sponsored</span>
                             ${business.is_verified ? '<span class="text-blue-400">✓ Verified</span>' : ''}
                         </div>
-                        <h3 class="text-xl font-bold text-primary">${business.name}</h3>
+                        <h3 class="text-xl font-bold text-primary">${business.sponsored_headline || business.name}</h3>
                         <p class="text-secondary text-sm mt-1">${business.city}, ${business.state}</p>
-                        ${business.description ? `<p class="text-gray-300 mt-3 line-clamp-2">${business.description}</p>` : ''}
-                        <span class="inline-block mt-4 sonic-orange font-semibold">View sponsored profile →</span>
+                        ${(business.sponsored_offer_text || business.sponsored_body_text || business.description) ? `<p class="text-gray-300 mt-3 line-clamp-2">${business.sponsored_offer_text || business.sponsored_body_text || business.description}</p>` : ''}
+                        <span class="inline-block mt-4 sonic-orange font-semibold">${business.sponsored_cta_label || 'View sponsored profile'} →</span>
                     </div>
                 </a>
             `).join('')}
@@ -515,13 +518,13 @@ export const homepageContent = (data: any) => `
         <div class="glow-card border-2 border-[#ED5409]/40 p-8">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
                 <div>
-                    <p class="text-xs uppercase tracking-widest text-secondary mb-2">Auction inventory</p>
-                    <h3 class="text-2xl font-bold text-primary mb-3">Paid placements are available through the auction</h3>
-                    <p class="text-gray-300 max-w-3xl">When no business is winning a live slot, we show the inventory here and point advertisers to the current floors, rules, and next steps.</p>
+                    <p class="text-xs uppercase tracking-widest text-secondary mb-2">Sponsored inventory</p>
+                    <h3 class="text-2xl font-bold text-primary mb-3">Paid placements are available at clear published prices</h3>
+                    <p class="text-gray-300 max-w-3xl">When a live slot is available, we show the placement price, one-hour guarantee, and the next checkout step.</p>
                 </div>
                 <div class="flex flex-col gap-3 min-w-[240px]">
-                    <a href="/advertise#auction-bids" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold text-center">Advertise</a>
-                    <a href="/advertise/pricing#auction-pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold text-center hover:bg-[#ED5409]/10 transition-colors">See auction pricing</a>
+                    <a href="/advertise#sponsored-placements" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold text-center">Advertise</a>
+                    <a href="/advertise/pricing#sponsored-pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold text-center hover:bg-[#ED5409]/10 transition-colors">See placement pricing</a>
                 </div>
             </div>
         </div>
@@ -613,8 +616,8 @@ export const homepageContent = (data: any) => `
                 <a href="/submit" class="btn-glow text-white px-8 py-4 rounded-lg font-semibold text-lg inline-block">
                     List Your Business Today
                 </a>
-                <a href="/advertise#auction-bids" class="border border-white/40 text-white px-8 py-4 rounded-lg font-semibold text-lg inline-block hover:bg-white/10 transition-colors">
-                    Advertise with the auction
+                <a href="/advertise#sponsored-placements" class="border border-white/40 text-white px-8 py-4 rounded-lg font-semibold text-lg inline-block hover:bg-white/10 transition-colors">
+                    Advertise with a sponsored placement
                 </a>
             </div>
         </div>
@@ -623,12 +626,12 @@ export const homepageContent = (data: any) => `
 
 const formatMoney = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-const auctionTierCard = (title: string, fallback: { placementType: string; floorCents: number; summary: string }, status: any) => {
-    const current = status || { tier: { label: title, placement_type: fallback.placementType, floor_cents: fallback.floorCents }, openingBidCents: fallback.floorCents, currentBidCents: fallback.floorCents, paymentStatus: 'pending-square', currentBusinessId: null };
+const sponsoredPlacementTierCard = (title: string, fallback: { placementType: string; floorCents: number; summary: string }, status: any) => {
+    const current = status || { tier: { label: title, placement_type: fallback.placementType, floor_cents: fallback.floorCents }, priceCents: fallback.floorCents, takeoverPriceCents: fallback.floorCents + 100, isAvailable: true, guaranteedUntil: null };
     const tierId = title === 'Regional Spotlight' ? 'regional-spotlight' : 'local-spotlight';
-    const formId = `auction-form-${tierId}`;
-    const messageId = `auction-message-${tierId}`;
-    const avatarId = `auction-bigfoot-${tierId}`;
+    const formId = `sponsored-placement-form-${tierId}`;
+    const messageId = `sponsored-placement-message-${tierId}`;
+    const avatarId = `sponsored-placement-bigfoot-${tierId}`;
     return `
         <div class="glow-card border border-[#ED5409]/30 p-6">
             <div class="flex items-center justify-between gap-4 mb-4">
@@ -637,23 +640,23 @@ const auctionTierCard = (title: string, fallback: { placementType: string; floor
                     <h3 class="text-2xl font-bold text-primary">${current.tier.label}</h3>
                 </div>
                 <div class="flex items-start gap-2">
-                    ${bigfootAvatar('thumbsUp', 'Bigfoot Jr. rooting for local bidders', 'bigfoot-bidder', avatarId)}
-                    <span class="text-xs font-bold uppercase tracking-widest text-[#FFCB67] border border-[#FFCB67]/30 rounded-full px-3 py-1">${current.paymentStatus}</span>
+                    ${bigfootAvatar('thumbsUp', 'Bigfoot Jr. helping local advertisers', 'bigfoot-bidder', avatarId)}
+                    <span class="text-xs font-bold uppercase tracking-widest text-[#FFCB67] border border-[#FFCB67]/30 rounded-full px-3 py-1">${current.isAvailable ? 'available now' : 'guaranteed hour active'}</span>
                 </div>
             </div>
             <p class="text-gray-300 mb-4">${fallback.summary}</p>
             <div class="grid grid-cols-2 gap-3 mb-4">
                 <div class="rounded-xl bg-black/20 border border-white/5 p-4">
-                    <div class="text-xs uppercase tracking-widest text-secondary">Floor</div>
+                    <div class="text-xs uppercase tracking-widest text-secondary">Start price</div>
                     <div class="text-2xl font-bold mt-1 text-[#FFCB67]">${formatMoney(current.tier.floor_cents)}</div>
                 </div>
                 <div class="rounded-xl bg-black/20 border border-white/5 p-4">
-                    <div class="text-xs uppercase tracking-widest text-secondary">Current</div>
-                    <div class="text-2xl font-bold mt-1 text-[#FFCB67]">${formatMoney(current.currentBidCents)}</div>
+                    <div class="text-xs uppercase tracking-widest text-secondary">Next checkout</div>
+                    <div class="text-2xl font-bold mt-1 text-[#FFCB67]">${formatMoney(current.priceCents)}</div>
                 </div>
             </div>
             <div class="text-sm text-gray-400">
-                Current slot status: ${current.currentBusinessId ? 'Occupied' : 'Open'} · Opening bid ${formatMoney(current.openingBidCents)} · A verified winner appears for at least one hour, or until a higher verified bid takes the slot
+                ${current.isAvailable ? `Available now for ${formatMoney(current.priceCents)}. Your payment activates one guaranteed hour.` : `This placement is guaranteed through ${new Date(current.guaranteedUntil * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. After that, the next business can purchase the placement for ${formatMoney(current.takeoverPriceCents)}.`}
             </div>
             <form id="${formId}" class="mt-6 space-y-4 rounded-2xl border border-white/10 bg-black/20 p-5">
                 <div>
@@ -662,8 +665,7 @@ const auctionTierCard = (title: string, fallback: { placementType: string; floor
                     <p class="mt-1 text-xs text-gray-400">We match this to an existing listing when possible. Businesses not yet listed can advertise too.</p>
                 </div>
                 <div>
-                    <label class="block text-sm font-semibold text-gray-200" for="${formId}-bid">Your bid in USD</label>
-                    <input id="${formId}-bid" name="bid_dollars" type="number" inputmode="decimal" min="${(current.currentBidCents / 100 + 0.01).toFixed(2)}" step="0.01" required placeholder="${(current.currentBidCents / 100 + 1).toFixed(2)}" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white placeholder:text-gray-500 focus:border-[#FFCB67] focus:outline-none">
+                    <div class="rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white"><span class="text-sm text-gray-300">Price today:</span> <strong>${formatMoney(current.priceCents)}</strong></div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -675,8 +677,8 @@ const auctionTierCard = (title: string, fallback: { placementType: string; floor
                         <input id="${formId}-city" name="business_location" type="text" autocomplete="address-level2" placeholder="Broken Bow, OK" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white placeholder:text-gray-500 focus:border-[#FFCB67] focus:outline-none">
                     </div>
                 </div>
-                <button type="submit" class="w-full rounded-lg bg-[#ED5409] px-5 py-3 font-bold text-white transition hover:bg-[#ff6a1f]">Place bid</button>
-                <p id="${messageId}" class="text-sm text-gray-300" role="status">Submitting does not charge you. You will only be charged after continuing to Square checkout. A verified higher bid takes the slot; paid bids are not refunded when displaced.</p>
+                <button type="submit" ${current.isAvailable ? '' : 'disabled'} class="w-full rounded-lg bg-[#ED5409] px-5 py-3 font-bold text-white transition hover:bg-[#ff6a1f] disabled:cursor-not-allowed disabled:opacity-50">${current.isAvailable ? `Continue to Square — ${formatMoney(current.priceCents)}` : 'Available after guarantee ends'}</button>
+                <p id="${messageId}" class="text-sm text-gray-300" role="status">Square confirms payment server-side before we activate the placement. There is no recurring charge.</p>
             </form>
             <script>
                 (() => {
@@ -690,37 +692,41 @@ const auctionTierCard = (title: string, fallback: { placementType: string; floor
                         const businessName = String(data.get('business_name') || '').trim();
                         const contactEmail = String(data.get('contact_email') || '').trim();
                         const businessLocation = String(data.get('business_location') || '').trim();
-                        const bidDollars = Number(data.get('bid_dollars'));
-                        const bidCents = Math.round(bidDollars * 100);
-                        if (!businessName || !contactEmail || !Number.isFinite(bidDollars) || bidCents < ${current.currentBidCents + 1}) {
-                            message.textContent = 'Enter a business name, contact email, and a bid higher than the current bid.';
+                        if (!businessName || !contactEmail) {
+                            message.textContent = 'Enter a business name and contact email.';
                             return;
                         }
                         const button = form.querySelector('button[type="submit"]');
                         if (button) { button.disabled = true; button.textContent = 'Submitting...'; }
                         if (avatar) avatar.src = '${BIGFOOT_POSES.thinking}';
                         try {
-                            const response = await fetch('/api/auctions/${tierId}/bids', {
+                            const response = await fetch('/api/sponsored-placements/${tierId}/checkout', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ business_name: businessName, contact_email: contactEmail, business_location: businessLocation, bid_cents: bidCents })
+                                body: JSON.stringify({ business_name: businessName, contact_email: contactEmail, business_location: businessLocation })
                             });
-                            const result = await response.json();
-                            if (!response.ok) throw new Error(result.error || result.reason || 'Bid was not accepted');
+                            const responseText = await response.text();
+                            let result: { error?: string; checkoutUrl?: string } = {};
+                            try {
+                                result = responseText ? JSON.parse(responseText) as { error?: string; checkoutUrl?: string } : {};
+                            } catch {
+                                result.error = responseText || 'Checkout request failed with status ' + response.status + '.';
+                            }
+                            if (!response.ok) throw new Error(result.error || 'Sponsored placement is not available yet');
                             if (result.checkoutUrl) {
-                                message.innerHTML = 'Bid submitted. Redirecting to Square checkout now. If nothing happens, <a class="text-[#FFCB67] underline" href="' + result.checkoutUrl + '" target="_blank" rel="noopener">continue to Square</a>.';
+                                message.innerHTML = 'Redirecting to Square checkout now. If nothing happens, <a class="text-[#FFCB67] underline" href="' + result.checkoutUrl + '" target="_blank" rel="noopener">continue to Square</a>.';
                                 if (button) { button.textContent = 'Redirecting to Square...'; }
                                 if (avatar) avatar.src = '${BIGFOOT_POSES.celebrate}';
                                 window.location.assign(result.checkoutUrl);
                                 return;
                             }
-                            message.textContent = 'Bid submitted and waiting for Square checkout configuration.';
+                            message.textContent = 'Checkout could not be started. Please try again.';
                             if (avatar) avatar.src = '${BIGFOOT_POSES.celebrate}';
-                            if (button) { button.disabled = false; button.textContent = 'Place bid'; }
+                            if (button) { button.disabled = false; button.textContent = 'Continue to Square'; }
                         } catch (error) {
-                            message.textContent = error instanceof Error ? error.message : 'Bid submission failed. Please try again.';
+                            message.textContent = error instanceof Error ? error.message : 'Sponsored placement checkout failed. Please try again.';
                             if (avatar) avatar.src = '${BIGFOOT_POSES.thinking}';
-                            if (button) { button.disabled = false; button.textContent = 'Place bid'; }
+                            if (button) { button.disabled = false; button.textContent = 'Continue to Square'; }
                         }
                     });
                 })();
@@ -738,7 +744,7 @@ export const aboutPageContent = (data: any) => `
                 <p class="text-xl opacity-90 max-w-3xl">KiamichiBizConnect is the local directory for Southeast Oklahoma, Northeast Texas, and Southwest Arkansas — built to make discovery easy, sponsorships clear, and business pages useful.</p>
                 <div class="flex flex-col md:flex-row gap-4 mt-8">
                     <a href="/submit" class="btn-glow text-white px-7 py-3 rounded-lg font-semibold text-lg inline-block text-center">List your business</a>
-                    <a href="/advertise#auction-bids" class="border border-white/40 text-white px-7 py-3 rounded-lg font-semibold text-lg inline-block text-center hover:bg-white/10 transition-colors">See advertising</a>
+                    <a href="/advertise#sponsored-placements" class="border border-white/40 text-white px-7 py-3 rounded-lg font-semibold text-lg inline-block text-center hover:bg-white/10 transition-colors">See advertising</a>
                 </div>
             </div>
         </div>
@@ -778,20 +784,20 @@ export const advertisePageContent = (data: any) => `
             <div class="max-w-4xl">
                 <p class="text-xs uppercase tracking-widest opacity-80 mb-4">Advertise</p>
                 <h1 class="text-5xl font-bold mb-6">Run a sponsored placement on the directory.</h1>
-                <p class="text-xl opacity-90 max-w-3xl">Advertising is auction-based. Businesses bid for placement, Square payment verification activates the slot, and the homepage clearly labels the sponsored inventory.</p>
+                <p class="text-xl opacity-90 max-w-3xl">Choose a clear fixed price, complete Square checkout, and receive a guaranteed one-hour sponsored placement after payment is verified.</p>
             </div>
         </div>
     </section>
 
-    <section id="auction-bids" class="container mx-auto px-4 py-16 scroll-mt-24">
+    <section id="sponsored-placements" class="container mx-auto px-4 py-16 scroll-mt-24">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            ${auctionTierCard('Local Spotlight', { placementType: 'homepage-featured', floorCents: 500, summary: 'Best for businesses that want a visible homepage sponsor slot in the local market.' }, data.localAuction)}
-            ${auctionTierCard('Regional Spotlight', { placementType: 'sidebar', floorCents: 2500, summary: 'Broader reach for brands that want to show up in a premium sponsored placement.' }, data.regionalAuction)}
+            ${sponsoredPlacementTierCard('Local Spotlight', { placementType: 'homepage-featured', floorCents: 500, summary: 'Best for businesses that want a visible homepage sponsor slot in the local market.' }, data.localPlacement)}
+            ${sponsoredPlacementTierCard('Regional Spotlight', { placementType: 'sidebar', floorCents: 2500, summary: 'Broader reach for brands that want to show up in a premium sponsored placement.' }, data.regionalPlacement)}
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mt-10">
-            <div class="glow-card p-6"><div class="text-sm uppercase tracking-widest text-secondary mb-2">1</div><h3 class="text-xl font-bold text-primary mb-2">Choose a tier</h3><p class="text-gray-300">Start with the floor shown on the pricing page.</p></div>
-            <div class="glow-card p-6"><div class="text-sm uppercase tracking-widest text-secondary mb-2">2</div><h3 class="text-xl font-bold text-primary mb-2">Submit the bid</h3><p class="text-gray-300">The auction accepts only strictly higher bids.</p></div>
+            <div class="glow-card p-6"><div class="text-sm uppercase tracking-widest text-secondary mb-2">1</div><h3 class="text-xl font-bold text-primary mb-2">Choose a tier</h3><p class="text-gray-300">Use the published fixed price for the available placement.</p></div>
+            <div class="glow-card p-6"><div class="text-sm uppercase tracking-widest text-secondary mb-2">2</div><h3 class="text-xl font-bold text-primary mb-2">Complete checkout</h3><p class="text-gray-300">There is no ongoing subscription.</p></div>
             <div class="glow-card p-6"><div class="text-sm uppercase tracking-widest text-secondary mb-2">3</div><h3 class="text-xl font-bold text-primary mb-2">Verify payment</h3><p class="text-gray-300">Square completion is required before activation.</p></div>
             <div class="glow-card p-6"><div class="text-sm uppercase tracking-widest text-secondary mb-2">4</div><h3 class="text-xl font-bold text-primary mb-2">Go live</h3><p class="text-gray-300">Once active, the slot is labeled across the directory.</p></div>
         </div>
@@ -800,10 +806,10 @@ export const advertisePageContent = (data: any) => `
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
                     <h2 class="text-2xl font-bold text-primary">Need a walkthrough?</h2>
-                    <p class="text-gray-300 mt-2">We can help you choose the right tier and explain the auction timing before you place a bid.</p>
+                    <p class="text-gray-300 mt-2">We can help you choose the right tier and prepare your sponsored placement after payment is confirmed.</p>
                 </div>
                 <div class="flex gap-3 flex-wrap">
-                    <a href="/advertise/pricing#auction-pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold hover:bg-[#ED5409]/10 transition-colors">View auction pricing</a>
+                    <a href="/advertise/pricing#sponsored-pricing" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold hover:bg-[#ED5409]/10 transition-colors">View placement pricing</a>
                     <a href="/submit" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold">List your business</a>
                 </div>
             </div>
@@ -817,7 +823,7 @@ export const pricingHubPageContent = () => `
             <div class="max-w-4xl">
                 <p class="text-xs uppercase tracking-widest opacity-80 mb-4">Pricing</p>
                 <h1 class="text-5xl font-bold mb-6">Pricing is split by offering.</h1>
-                <p class="text-xl opacity-90 max-w-3xl">Auction advertising has its own pricing page. Tooling, services, and future platform packages will live on separate pricing pages.</p>
+                <p class="text-xl opacity-90 max-w-3xl">Sponsored placements have their own pricing page. Tooling, services, and future platform packages will live on separate pricing pages.</p>
             </div>
         </div>
     </section>
@@ -826,11 +832,11 @@ export const pricingHubPageContent = () => `
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <div class="glow-card p-8 border border-[#ED5409]/40">
                 <p class="text-xs uppercase tracking-widest text-secondary mb-3">Advertising</p>
-                <h2 class="text-3xl font-bold text-primary mb-4">Auction ad pricing</h2>
-                <p class="text-gray-300 mb-6">See the live auction floors, bid rules, and current placement pricing for sponsored visibility on the directory.</p>
+                <h2 class="text-3xl font-bold text-primary mb-4">Sponsored placement pricing</h2>
+                <p class="text-gray-300 mb-6">See clear fixed prices and the one-hour placement guarantee for sponsored visibility on the directory.</p>
                 <div class="flex flex-wrap gap-3">
-                    <a href="/advertise/pricing#auction-pricing" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold">See auction pricing</a>
-                    <a href="/advertise#auction-bids" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold hover:bg-[#ED5409]/10 transition-colors">Go to auction bids</a>
+                    <a href="/advertise/pricing#sponsored-pricing" class="btn-glow text-white px-6 py-3 rounded-lg font-semibold">See placement pricing</a>
+                    <a href="/advertise#sponsored-placements" class="border border-[#ED5409]/50 text-[#FFCB67] px-6 py-3 rounded-lg font-semibold hover:bg-[#ED5409]/10 transition-colors">Choose a placement</a>
                 </div>
             </div>
             <div class="glow-card p-8">
@@ -846,26 +852,26 @@ export const pricingHubPageContent = () => `
 `;
 
 export const pricingPageContent = (data: any) => `
-    <section id="auction-pricing" class="gradient-bg text-white py-20 scroll-mt-24">
+    <section id="sponsored-pricing" class="gradient-bg text-white py-20 scroll-mt-24">
         <div class="container mx-auto px-4">
             <div class="max-w-4xl">
-                <p class="text-xs uppercase tracking-widest opacity-80 mb-4">Auction ad pricing</p>
-                <h1 class="text-5xl font-bold mb-6">Current auction floors and placement pricing.</h1>
-                <p class="text-xl opacity-90 max-w-3xl">Prices are auction floors, not fixed subscriptions. The live bid determines who wins the slot, and the page below shows the current minimums.</p>
+                <p class="text-xs uppercase tracking-widest opacity-80 mb-4">Sponsored placement pricing</p>
+                <h1 class="text-5xl font-bold mb-6">Clear pricing. Guaranteed one-hour placements.</h1>
+                <p class="text-xl opacity-90 max-w-3xl">There is no recurring subscription. An available placement is purchased at the published price and stays visible for at least one hour.</p>
             </div>
         </div>
     </section>
 
     <section class="container mx-auto px-4 py-16">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            ${auctionTierCard('Local Spotlight', { placementType: 'homepage-featured', floorCents: 500, summary: 'Homepage spotlight for local businesses looking for strong visibility on the front page.' }, data.localAuction)}
-            ${auctionTierCard('Regional Spotlight', { placementType: 'sidebar', floorCents: 2500, summary: 'Premium sponsored placement for businesses that want broader regional attention.' }, data.regionalAuction)}
+            ${sponsoredPlacementTierCard('Local Spotlight', { placementType: 'homepage-featured', floorCents: 500, summary: 'Homepage spotlight for local businesses looking for strong visibility on the front page.' }, data.localPlacement)}
+            ${sponsoredPlacementTierCard('Regional Spotlight', { placementType: 'sidebar', floorCents: 2500, summary: 'Premium sponsored placement for businesses that want broader regional attention.' }, data.regionalPlacement)}
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10">
-            <div class="glow-card p-6"><h3 class="text-xl font-bold text-primary mb-2">Floor means minimum</h3><p class="text-gray-300">The auction starts at the floor shown on the card. Higher bids win.</p></div>
-            <div class="glow-card p-6"><h3 class="text-xl font-bold text-primary mb-2">One winner per slot</h3><p class="text-gray-300">Within an active hour, the current winner stays until a strictly higher bid arrives.</p></div>
-            <div class="glow-card p-6"><h3 class="text-xl font-bold text-primary mb-2">Payment gate</h3><p class="text-gray-300">A bid stays pending until Square confirms the payment server-side.</p></div>
+            <div class="glow-card p-6"><h3 class="text-xl font-bold text-primary mb-2">Published price</h3><p class="text-gray-300">The price displayed on an available card is the price charged at checkout.</p></div>
+            <div class="glow-card p-6"><h3 class="text-xl font-bold text-primary mb-2">One-hour guarantee</h3><p class="text-gray-300">An activated placement cannot be replaced during its first hour.</p></div>
+            <div class="glow-card p-6"><h3 class="text-xl font-bold text-primary mb-2">Payment verification</h3><p class="text-gray-300">Square must confirm payment server-side before the placement goes live.</p></div>
         </div>
 
         <div class="glow-card p-8 mt-10">
@@ -873,21 +879,28 @@ export const pricingPageContent = (data: any) => `
                 <div>
                     <h2 class="text-2xl font-bold text-primary mb-3">How the pricing works</h2>
                     <ul class="space-y-3 text-gray-300 list-disc list-inside">
-                        <li>Daily auction cycle starts at 7:00 a.m. America/Chicago.</li>
-                        <li>The opening bid is based on the prior day’s winning history when available.</li>
-                        <li>Empty or stale history falls back to the tier floor.</li>
+                        <li>Local Spotlight starts at $5.00 when available.</li>
+                        <li>Regional Spotlight starts at $25.00 when available.</li>
+                        <li>After an hour has elapsed, the placement is available for the next published takeover price.</li>
                         <li>Sponsored placements are always labeled on the live site.</li>
                     </ul>
                 </div>
                 <div class="rounded-2xl bg-black/20 border border-white/5 p-6">
                     <div class="text-xs uppercase tracking-widest text-secondary mb-3">Current status</div>
                     <div class="space-y-4">
-                        <div class="flex items-center justify-between"><span class="text-gray-300">Local Spotlight</span><span class="font-bold text-[#FFCB67]">${data.localAuction ? formatMoney(data.localAuction.currentBidCents) : '$5.00'}</span></div>
-                        <div class="flex items-center justify-between"><span class="text-gray-300">Regional Spotlight</span><span class="font-bold text-[#FFCB67]">${data.regionalAuction ? formatMoney(data.regionalAuction.currentBidCents) : '$25.00'}</span></div>
-                        <div class="pt-3 border-t border-white/10 text-sm text-gray-400">Use the <a href="/advertise#auction-bids" class="text-[#FFCB67] underline">advertise page</a> to place a live bid and continue to Square checkout.</div>
+                        <div class="flex items-center justify-between"><span class="text-gray-300">Local Spotlight</span><span class="font-bold text-[#FFCB67]">${data.localPlacement ? formatMoney(data.localPlacement.priceCents) : '$5.00'}</span></div>
+                        <div class="flex items-center justify-between"><span class="text-gray-300">Regional Spotlight</span><span class="font-bold text-[#FFCB67]">${data.regionalPlacement ? formatMoney(data.regionalPlacement.priceCents) : '$25.00'}</span></div>
+                        <div class="pt-3 border-t border-white/10 text-sm text-gray-400">Use the <a href="/advertise#sponsored-placements" class="text-[#FFCB67] underline">advertise page</a> to continue to Square checkout.</div>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 `;
+
+export const sponsoredPlacementSetupPageContent = (data: { purchaseId: number; token: string; setup: any }) => {
+    const setup = data.setup;
+    const creative = setup.creative || {};
+    const verified = setup.status === 'paid';
+    return `<section class="gradient-bg text-white py-16"><div class="container mx-auto px-4 max-w-3xl"><p class="text-xs uppercase tracking-widest opacity-80 mb-4">Sponsored placement setup</p><h1 class="text-4xl font-bold mb-4">Build your ad for ${setup.business_name}</h1><p class="text-lg opacity-90 mb-8">${verified ? 'Payment verified. Your creative will appear with the active sponsored placement.' : 'Build and save your creative now. Square will publish it after payment is verified.'}</p><form id="creative-form" enctype="multipart/form-data" class="glow-card p-6 space-y-5"><label class="block font-semibold">Headline<input name="headline" maxlength="80" required value="${creative.headline || ''}" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white"></label><label class="block font-semibold">Ad text<textarea name="body_text" maxlength="300" required rows="4" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white">${creative.body_text || ''}</textarea></label><label class="block font-semibold">Offer (optional)<input name="offer_text" maxlength="140" value="${creative.offer_text || ''}" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white"></label><div class="grid md:grid-cols-2 gap-5"><label class="block font-semibold">Button text<input name="cta_label" maxlength="32" required value="${creative.cta_label || 'Learn more'}" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white"></label><label class="block font-semibold">Button link (optional)<input name="cta_url" type="url" value="${creative.cta_url || ''}" class="mt-2 w-full rounded-lg border border-white/15 bg-white/10 px-4 py-3 text-white" placeholder="https://yourbusiness.com"></label></div><label class="block font-semibold">Logo or ad image (optional)<input name="image" type="file" accept="image/jpeg,image/png,image/webp" class="mt-2 block w-full text-sm text-white"><span class="mt-1 block text-xs text-gray-300">JPG, PNG, or WebP up to 5 MB.</span></label><button class="btn-glow text-white px-6 py-3 rounded-lg font-semibold" type="submit">Save creative</button><p id="save-message" role="status" class="text-sm text-gray-200"></p></form></div></section><script>(() => { const form = document.getElementById('creative-form'); const message = document.getElementById('save-message'); const endpoint = '/api/sponsored-placements/setup/${data.purchaseId}?token=${encodeURIComponent(data.token)}'; if (!form) { setTimeout(async () => { const r = await fetch(endpoint); if ((await r.json()).status === 'paid') location.reload(); }, 5000); return; } form.addEventListener('submit', async (e) => { e.preventDefault(); const d = new FormData(form); const r = await fetch(endpoint, { method: 'PUT', body: d }); const result = await r.json(); message.textContent = r.ok ? 'Saved. Your sponsored placement now uses this creative.' : result.error || 'Could not save creative.'; }); })();</script>`;
+};
