@@ -61,11 +61,12 @@ SITE_URL = "https://kiamichibizconnect.com"
 BUSINESS_IMAGES_PUBLIC_URL = "https://pub-6fcc00afe89845d2a131c52047729c33.r2.dev"
 DEFAULT_SERVICE_AREA = "Southeast Oklahoma, Northeast Texas, Southwest Arkansas"
 ADMIN_EMAIL = "admin@kiamichibizconnect.com"
-# Sandbox Square values are Cloudflare secrets: SQUARE_ACCESS_TOKEN,
-# SQUARE_LOCATION_ID, and SQUARE_WEBHOOK_SIGNATURE_KEY. Keep this sandbox
+# Sandbox Square access token and webhook signature are Cloudflare secrets.
+# The public Sandbox location ID remains an environment variable for checkout.
 # while validating checkout and signed payment.updated webhooks; switch to
 # "production" only in the reviewed production-credential release.
 SQUARE_ENVIRONMENT = "sandbox"
+SQUARE_LOCATION_ID = "LW8XR3X959K7Y"
 SQUARE_WEBHOOK_URL = "https://kiamichibizconnect.com/api/webhooks/square"
 # ADMIN_KEY should be set using: wrangler secret put ADMIN_KEY
 GOOGLE_CLIENT_ID = "434934291611-9uo1jsbg07dnd711l4vb47kbrm2okoc0.apps.googleusercontent.com"
