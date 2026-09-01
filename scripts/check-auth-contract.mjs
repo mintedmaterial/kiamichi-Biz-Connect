@@ -9,6 +9,7 @@ const admin = read('src/admin.ts');
 const github = read('src/auth/github.ts');
 const middleware = read('src/auth/middleware.ts');
 const facebook = read('src/facebook-oauth.ts');
+const businessAgent = read('workers/business-agent/src/server.ts');
 
 function requireText(source, text, message) {
   if (!source.includes(text)) throw new Error(message);
@@ -46,5 +47,8 @@ requireText(index, "source: 'meta_oauth_managed_page'", 'Submission must record 
 rejectText(index, 'fb_session', 'Facebook connection IDs must not appear in browser URLs or JavaScript');
 rejectText(index, 'name="is_verified"', 'Public submissions must not control verification state');
 rejectText(index, "formData.get('is_verified')", 'Server must not trust public verification input');
+rejectText(index, '[name="facebook_rating"]', 'Facebook auto-fill must not write to removed rating controls');
+requireText(businessAgent, 'https://kiamichibizconnect.com/auth/github/login', 'Business Agent must use the live GitHub admin login route');
+rejectText(businessAgent, 'https://kiamichibizconnect.com/auth/google/login', 'Business Agent must not redirect to the disabled Google route');
 
 console.log('Admin GitHub and business Facebook auth contracts verified.');

@@ -1755,13 +1755,6 @@ async function handleSubmitForm(db: DatabaseService, env: Env): Promise<Response
               if (loc.longitude) form.querySelector('[name="longitude"]').value = loc.longitude;
             }
 
-            if (pageInfo.overall_star_rating) {
-              form.querySelector('[name="facebook_rating"]').value = pageInfo.overall_star_rating;
-            }
-            if (pageInfo.rating_count) {
-              form.querySelector('[name="facebook_review_count"]').value = pageInfo.rating_count;
-            }
-
             // Set Facebook URL
             form.querySelector('[name="facebook_url"]').value = 'https://facebook.com/' + pageId;
 
