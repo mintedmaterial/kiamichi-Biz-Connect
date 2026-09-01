@@ -78,6 +78,8 @@ requireText(facebookMascotGenerator, 'hasFacebookIdentity(business.facebook_page
 requireText(previewWorkflow, "node-version: '22'", 'Preview deployments must use the supported Node.js runtime');
 requireText(previewWorkflow, 'name: Require successful preview deployments', 'Preview deployment failures must fail CI');
 requireText(previewWorkflow, 'CLOUDFLARE_ENV: preview', 'Business Agent must resolve preview bindings at build time');
+requireText(previewWorkflow, 'https://kiamichi-biz-connect-preview.srvcflo.workers.dev', 'Preview comments must link to the real Main Worker account subdomain');
+requireText(previewWorkflow, 'https://kiamichi-business-agent-preview.srvcflo.workers.dev', 'Preview comments must link to the real Business Agent account subdomain');
 rejectText(previewWorkflow, 'GOOGLE_CLIENT_SECRET', 'Preview must not copy retired Google credentials');
 rejectText(previewWorkflow, 'FB_PASSWORD', 'Preview must not copy Facebook login credentials');
 rejectText(previewWorkflow, 'FB_EMAIL', 'Preview must not copy Facebook login credentials');

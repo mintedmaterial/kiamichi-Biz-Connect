@@ -112,8 +112,8 @@ jobs:
 
             | Worker | Status | URL |
             |--------|--------|-----|
-            | Main Worker | ${{ steps.deploy-main.outcome }} | [Preview](https://kiamichi-biz-connect-preview.workers.dev) |
-            | Business Agent | ${{ steps.deploy-business-agent.outcome }} | [Preview](https://kiamichi-business-agent-preview.workers.dev) |
+            | Main Worker | ${{ steps.deploy-main.outcome }} | [Preview](https://kiamichi-biz-connect-preview.srvcflo.workers.dev) |
+            | Business Agent | ${{ steps.deploy-business-agent.outcome }} | [Preview](https://kiamichi-business-agent-preview.srvcflo.workers.dev) |
             | Analyzer Worker | ${{ steps.deploy-analyzer.outcome }} | Background worker |
             | Facebook Worker | ${{ steps.deploy-facebook.outcome }} | Background worker |
 
