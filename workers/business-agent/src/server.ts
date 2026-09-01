@@ -216,7 +216,7 @@ export class Chat extends AIChatAgent<Env, BusinessAgentState> {
       }
 
       console.log(`[DO] No valid session - redirecting browser to login`);
-      return Response.redirect("https://kiamichibizconnect.com/auth/google/login", 302);
+      return Response.redirect("https://kiamichibizconnect.com/auth/github/login", 302);
     }
 
     console.log(`[DO] Valid session present - allowing access`);

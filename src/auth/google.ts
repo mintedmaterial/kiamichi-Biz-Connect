@@ -206,8 +206,6 @@ export async function createAdminSession(
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).bind(sessionId, email, name, picture, now, expiresAt, now).run();
 
-  console.log('Created admin session:', sessionId, 'for', email);
-
   return sessionId;
 }
 

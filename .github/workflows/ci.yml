@@ -25,6 +25,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Validate canonical D1 schema and migration replay
         run: npm run check:schema
+      - name: Validate admin and business OAuth boundaries
+        run: npm run check:auth
       - name: Smoke test homepage and listing routes
         run: npm run smoke:main
       - name: Build main Worker

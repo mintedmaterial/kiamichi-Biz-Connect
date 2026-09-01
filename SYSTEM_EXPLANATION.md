@@ -144,7 +144,7 @@ return {
 
 ## 🎯 What You Can Do Right Now
 
-1. **Login**: https://kiamichibizconnect.com/auth/google/login
+1. **Login**: https://kiamichibizconnect.com/auth/github/login
 2. **Open Editor**: https://app.kiamichibizconnect.com
 3. **Test Commands**:
    - "List my page components" → Should show 3 components

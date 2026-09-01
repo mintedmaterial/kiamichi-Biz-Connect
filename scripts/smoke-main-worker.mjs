@@ -69,7 +69,23 @@ try {
   const listingResponse = await fetch(`${baseUrl}/business/smoke-listing`);
   const listingHtml = await listingResponse.text();
   if (!listingResponse.ok || !listingHtml.includes('Smoke Listing')) throw new Error(`Listing smoke failed (${listingResponse.status})`);
-  console.log(`Smoke passed: ${baseUrl}/health, /, /business/smoke-listing`);
+
+  const adminResponse = await fetch(`${baseUrl}/admin`);
+  const adminHtml = await adminResponse.text();
+  if (!adminResponse.ok || !adminHtml.includes('Sign in with GitHub')) throw new Error(`Admin GitHub login smoke failed (${adminResponse.status})`);
+  if (adminHtml.includes('Sign in with Google') || adminHtml.includes('Sign in with Facebook')) throw new Error('Legacy admin providers are still rendered');
+
+  for (const legacyRoute of ['/auth/google/login', '/auth/facebook/admin/login']) {
+    const response = await fetch(`${baseUrl}${legacyRoute}`, { redirect: 'manual' });
+    if (response.status !== 404) throw new Error(`Legacy admin route ${legacyRoute} returned ${response.status}, expected 404`);
+  }
+
+  const submitResponse = await fetch(`${baseUrl}/submit`);
+  const submitHtml = await submitResponse.text();
+  if (!submitResponse.ok || !submitHtml.includes('Quick Auto-Fill from Facebook')) throw new Error(`Submit Facebook connect smoke failed (${submitResponse.status})`);
+  if (submitHtml.includes('name="is_verified"') || submitHtml.includes('fb_session')) throw new Error('Submit page exposes a forbidden verification or OAuth-session control');
+
+  console.log(`Smoke passed: ${baseUrl}/health, /, /business/smoke-listing, /admin, /submit, legacy admin routes`);
 } finally {
   if (child) {
     if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
