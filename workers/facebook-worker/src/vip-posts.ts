@@ -25,6 +25,7 @@ export interface VIPBusiness {
     city: string;
     state: string;
     facebook_url?: string;
+    facebook_page_id?: string;
     google_rating?: number;
   };
 }
@@ -68,6 +69,7 @@ export async function getVIPBusinessesForPosting(env: any): Promise<VIPBusiness[
       b.city,
       b.state,
       b.facebook_url,
+      b.facebook_page_id,
       b.google_rating
     FROM vip_businesses vb
     INNER JOIN businesses b ON vb.business_id = b.id
@@ -92,6 +94,7 @@ export async function getVIPBusinessesForPosting(env: any): Promise<VIPBusiness[
       city: row.city,
       state: row.state,
       facebook_url: row.facebook_url,
+      facebook_page_id: row.facebook_page_id,
       google_rating: row.google_rating
     }
   }));
@@ -171,7 +174,7 @@ export async function generateVIPPost(
     const systemPrompt = `You are a friendly local community member in Southeast Oklahoma who loves supporting local businesses.
 Write warm, genuine social media posts. NO hashtags. Sound like a real person, not a marketer.
 Keep posts 80-120 words. Use casual language and local flavor.
-${business.facebook_url 
+${business.facebook_page_id || business.facebook_url
   ? `IMPORTANT: Tag the business using @${business.name.replace(/\s+/g, '')} (remove ALL spaces from name!)`
   : `Mention ${business.name} naturally but don't use @tag.`
 }`;

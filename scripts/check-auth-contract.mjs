@@ -12,6 +12,7 @@ const facebook = read('src/facebook-oauth.ts');
 const businessAgent = read('workers/business-agent/src/server.ts');
 const database = read('src/database.ts');
 const facebookWorker = read('workers/facebook-worker/src/index.ts');
+const vipPosts = read('workers/facebook-worker/src/vip-posts.ts');
 
 function requireText(source, text, message) {
   if (!source.includes(text)) throw new Error(message);
@@ -58,5 +59,7 @@ requireText(database, 'business.facebook_page_id ?? null', 'Business creation mu
 requireText(facebookWorker, "^\\d+$/.test(biz.facebook_page_id)", 'Facebook automation must validate the persisted Page ID');
 requireText(facebookWorker, 'const pageId = storedPageId || (biz.facebook_url', 'Facebook automation must prefer the persisted Page ID with a legacy URL fallback');
 requireText(facebookWorker, 'facebook_page_id IS NOT NULL OR facebook_url IS NOT NULL', 'Facebook enrichment must include listings with a persisted Page ID and no URL');
+requireText(facebookWorker, 'Boolean(business.facebook_page_id || business.facebook_url)', 'Facebook test posts must recognize persisted Page identities');
+requireText(vipPosts, 'business.facebook_page_id || business.facebook_url', 'VIP posts must recognize persisted Page identities');
 
 console.log('Admin GitHub and business Facebook auth contracts verified.');

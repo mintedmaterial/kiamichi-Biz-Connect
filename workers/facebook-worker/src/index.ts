@@ -321,6 +321,7 @@ export default {
           }
 
           console.log(`[Test] Generating post for: ${business.name}`);
+          const hasFacebookIdentity = Boolean(business.facebook_page_id || business.facebook_url);
 
           // STEP 1: Generate content with real Workers AI
           console.log('[Test] Step 1: Generating AI content...');
@@ -340,7 +341,7 @@ WRITING STYLE:
 - Use casual language and local flavor
 - NO hashtags, NO emoji spam, NO corporate buzzwords
 - Add personal touches ("seriously", "honestly", "I'm telling you")
-${business.facebook_url
+${hasFacebookIdentity
   ? `- IMPORTANT: Tag the business using @${business.name.replace(/\s+/g, '')} (remove ALL spaces!) - they have a Facebook page and you follow them!
 - Example: @${business.name.replace(/\s+/g, '')} (no spaces allowed in tags!)`
   : '- Mention the business by name, but DON\'T use @tag (they don\'t have a Facebook page)'
@@ -357,7 +358,7 @@ ${business.google_rating ? `They've got ${business.google_rating} stars from ${b
 
 Write like you're genuinely excited to tell people about this place. Start with something that grabbed your attention about them. Keep it real and conversational.
 
-${business.facebook_url
+${hasFacebookIdentity
   ? `IMPORTANT: Tag the business by writing @${business.name.replace(/\s+/g, '')} (remove ALL spaces from the name!) somewhere naturally. They're on Facebook!`
   : `Mention ${business.name} naturally but DON'T use @tag since they don't have a Facebook page.`
 }
