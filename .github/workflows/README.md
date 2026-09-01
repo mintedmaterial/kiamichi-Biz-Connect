@@ -30,6 +30,10 @@ Deploys all workers to production when code is merged to main.
 
 **Triggers**: Push to main, manual workflow dispatch
 
+**Migration rule**: the deploy workflow executes only newly changed numbered
+files under `migrations/` (for example, `011_add_table.sql`). `schema.sql` is a
+generated verification snapshot and is never replayed against production.
+
 **Manual Deployment**:
 ```bash
 # From GitHub Actions UI:
