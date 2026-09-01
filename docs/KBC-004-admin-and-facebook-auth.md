@@ -62,6 +62,15 @@ Do not protect `/submit`, `/auth/facebook`, or `/auth/facebook/callback` with th
 
 Access does not replace application authorization. The Worker must continue to require D1 `site_admins` membership after GitHub identity resolution.
 
+## Pull-request preview boundary
+
+- Preview CI runs on Node.js 22 and fails unless all four Worker preview deployments succeed.
+- Main, Business Agent, Analyzer, and Facebook preview Workers bind only to `kiamichi-biz-connect-preview-db`, `kiamichi-biz-connect-preview-CACHE`, preview R2 buckets, and preview service names.
+- Analyzer and Facebook preview environments have empty cron schedules. The Analyzer also disables automatic updates and Code Mode.
+- Preview deployments do not copy admin, OAuth, Facebook login, or Facebook app secrets. A separate GitHub OAuth App and preview callback registration are required before GitHub login-start/callback can be accepted as a preview-runtime auth proof.
+- The Business Agent build must run with `CLOUDFLARE_ENV=preview`; otherwise its Vite-generated redirected Wrangler config resolves production bindings before the deploy command runs.
+- Preview Workers use `workers.dev` only and declare no production custom-domain routes.
+
 ## Release and verification gates
 
 1. Run `npm run check:auth`, `npm run smoke:main`, and `npm run build` on the exact commit.

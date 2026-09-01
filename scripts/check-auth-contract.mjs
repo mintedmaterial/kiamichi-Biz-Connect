@@ -16,6 +16,11 @@ const vipPosts = read('workers/facebook-worker/src/vip-posts.ts');
 const facebookScheduler = read('src/facebook-scheduler.ts');
 const facebookMascotGenerator = read('src/facebook-content-generator-mascot.ts');
 const utils = read('src/utils.ts');
+const previewWorkflow = read('.github/workflows/preview.yml');
+const mainWrangler = read('wrangler.toml');
+const businessAgentWrangler = read('workers/business-agent/wrangler.jsonc');
+const analyzerWrangler = read('workers/analyzer-worker/wrangler.toml');
+const facebookWrangler = read('workers/facebook-worker/wrangler.toml');
 
 function requireText(source, text, message) {
   if (!source.includes(text)) throw new Error(message);
@@ -70,5 +75,23 @@ requireText(facebookWorker, 'hasFacebookIdentity(business.facebook_page_id, busi
 requireText(vipPosts, 'hasFacebookIdentity(business.facebook_page_id, business.facebook_url)', 'VIP posts must recognize only valid persisted Page identities');
 requireText(facebookScheduler, 'hasFacebookIdentity(business.facebook_page_id, business.facebook_url)', 'Facebook queue scheduling must recognize only valid persisted Page identities');
 requireText(facebookMascotGenerator, 'hasFacebookIdentity(business.facebook_page_id, business.facebook_url)', 'Facebook mascot content must recognize only valid persisted Page identities');
+requireText(previewWorkflow, "node-version: '22'", 'Preview deployments must use the supported Node.js runtime');
+requireText(previewWorkflow, 'name: Require successful preview deployments', 'Preview deployment failures must fail CI');
+requireText(previewWorkflow, 'CLOUDFLARE_ENV: preview', 'Business Agent must resolve preview bindings at build time');
+rejectText(previewWorkflow, 'GOOGLE_CLIENT_SECRET', 'Preview must not copy retired Google credentials');
+rejectText(previewWorkflow, 'FB_PASSWORD', 'Preview must not copy Facebook login credentials');
+rejectText(previewWorkflow, 'FB_EMAIL', 'Preview must not copy Facebook login credentials');
+requireText(mainWrangler, '[env.preview]', 'Main Worker must define an explicit preview environment');
+requireText(mainWrangler, 'database_name = "kiamichi-biz-connect-preview-db"', 'Main preview must use the isolated D1 database');
+requireText(mainWrangler, 'bucket_name = "kiamichi-biz-images-preview"', 'Main preview must use isolated R2 storage');
+rejectText(mainWrangler, 'GOOGLE_CLIENT_ID', 'Retired Google configuration must not remain in Wrangler');
+requireText(businessAgentWrangler, '"kiamichi-biz-connect-preview-db"', 'Business Agent preview must use isolated D1');
+requireText(businessAgentWrangler, '"kiamichi-facebook-worker-preview"', 'Business Agent preview must use the preview Facebook service');
+requireText(analyzerWrangler, 'MAX_AUTO_UPDATES_PER_DAY = "0"', 'Analyzer preview must disable automatic updates');
+requireText(analyzerWrangler, 'USE_CODE_MODE = "false"', 'Analyzer preview must disable Code Mode');
+requireText(facebookWrangler, 'FB_PAGE_ID = ""', 'Facebook preview must not target the production Page');
+requireText(mainWrangler, 'triggers = { crons = [] }', 'Main preview must disable cron triggers');
+requireText(analyzerWrangler, 'triggers = { crons = [] }', 'Analyzer preview must disable cron triggers');
+requireText(facebookWrangler, 'triggers = { crons = [] }', 'Facebook preview must disable cron triggers');
 
 console.log('Admin GitHub and business Facebook auth contracts verified.');

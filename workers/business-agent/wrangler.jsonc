@@ -59,9 +59,7 @@
       "service": "kiamichi-facebook-worker"
     }
   ],
-  "vars": {
-    "GOOGLE_CLIENT_ID": "434934291611-9uo1jsbg07dnd711l4vb47kbrm2okoc0.apps.googleusercontent.com"
-  },
+  "vars": {},
   "r2_buckets": [
     {
       "binding": "TEMPLATES",
@@ -109,5 +107,79 @@
       "tag": "v3",
       "new_sqlite_classes": ["AtlasLive"]
     }
-  ]
+  ],
+  "env": {
+    "preview": {
+      "workers_dev": true,
+      "routes": [],
+      "vars": {},
+      "ai": {
+        "binding": "AI",
+        "remote": true
+      },
+      "flagship": [
+        {
+          "binding": "FLAGS",
+          "app_id": "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "kiamichi-biz-connect-preview-db",
+          "database_id": "92abd5cd-befe-4196-9d77-00e8e8fe1810"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CACHE",
+          "id": "d140f1a8e6114d19bc3e525be3ab0a9b"
+        }
+      ],
+      "services": [
+        {
+          "binding": "ANALYZER",
+          "service": "kiamichi-biz-ai-analyzer-preview"
+        },
+        {
+          "binding": "FACEBOOK_WORKER",
+          "service": "kiamichi-facebook-worker-preview"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "TEMPLATES",
+          "bucket_name": "kiamichi-component-templates-preview"
+        },
+        {
+          "binding": "BUSINESS_ASSETS",
+          "bucket_name": "kiamichi-business-assets-preview"
+        },
+        {
+          "binding": "IMAGES",
+          "bucket_name": "kiamichi-biz-images-preview"
+        },
+        {
+          "binding": "BUSINESS_IMAGES",
+          "bucket_name": "kiamichi-business-images-preview"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "Chat",
+            "class_name": "Chat"
+          },
+          {
+            "name": "VoiceAgent",
+            "class_name": "VoiceAgent"
+          },
+          {
+            "name": "AtlasLive",
+            "class_name": "AtlasLive"
+          }
+        ]
+      }
+    }
+  }
 }

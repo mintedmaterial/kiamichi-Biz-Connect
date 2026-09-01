@@ -69,12 +69,66 @@ SQUARE_ENVIRONMENT = "sandbox"
 SQUARE_LOCATION_ID = "LW8XR3X959K7Y"
 SQUARE_WEBHOOK_URL = "https://kiamichibizconnect.com/api/webhooks/square"
 # ADMIN_KEY should be set using: wrangler secret put ADMIN_KEY
-GOOGLE_CLIENT_ID = "434934291611-9uo1jsbg07dnd711l4vb47kbrm2okoc0.apps.googleusercontent.com"
 FACEBOOK_APP_ID = "879824491249046"
 
 # Development environment
 [env.development]
 vars = { ENVIRONMENT = "development" }
+
+# Isolated pull-request preview environment. OAuth and admin secrets are
+# intentionally not copied into preview deployments.
+[env.preview]
+workers_dev = true
+routes = []
+triggers = { crons = [] }
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+SITE_NAME = "KiamichiBizConnect Preview"
+SITE_URL = "https://kiamichi-biz-connect-preview.srvcflo.workers.dev"
+BUSINESS_IMAGES_PUBLIC_URL = ""
+DEFAULT_SERVICE_AREA = "Southeast Oklahoma, Northeast Texas, Southwest Arkansas"
+ADMIN_EMAIL = "admin@kiamichibizconnect.com"
+SQUARE_ENVIRONMENT = "sandbox"
+SQUARE_LOCATION_ID = ""
+SQUARE_WEBHOOK_URL = ""
+FACEBOOK_APP_ID = "879824491249046"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "kiamichi-biz-connect-preview-db"
+database_id = "92abd5cd-befe-4196-9d77-00e8e8fe1810"
+
+[[env.preview.r2_buckets]]
+binding = "IMAGES"
+bucket_name = "kiamichi-biz-images-preview"
+
+[[env.preview.r2_buckets]]
+binding = "BUSINESS_IMAGES"
+bucket_name = "kiamichi-business-images-preview"
+
+[[env.preview.r2_buckets]]
+binding = "BUSINESS_ASSETS"
+bucket_name = "kiamichi-business-assets-preview"
+
+[[env.preview.r2_buckets]]
+binding = "TEMPLATES"
+bucket_name = "kiamichi-component-templates-preview"
+
+[[env.preview.kv_namespaces]]
+binding = "CACHE"
+id = "d140f1a8e6114d19bc3e525be3ab0a9b"
+
+[env.preview.ai]
+binding = "AI"
+
+[[env.preview.flagship]]
+binding = "FLAGS"
+app_id = "ccdbbf6c-2b94-45b9-b5d5-e0c3d9c3fc5a"
+
+[[env.preview.services]]
+binding = "ANALYZER"
+service = "kiamichi-biz-ai-analyzer-preview"
 
 [observability]
 [observability.logs]

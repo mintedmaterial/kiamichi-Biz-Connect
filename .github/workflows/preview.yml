@@ -44,14 +44,6 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --env preview
-          secrets: |
-            ADMIN_KEY
-            GOOGLE_CLIENT_SECRET
-            FACEBOOK_APP_SECRET
-        env:
-          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
         continue-on-error: true
 
       # Deploy business-agent preview
@@ -62,6 +54,8 @@ jobs:
       - name: Build business-agent
         working-directory: workers/business-agent
         run: npm run build
+        env:
+          CLOUDFLARE_ENV: preview
 
       - name: Deploy Business Agent Preview
         id: deploy-business-agent
@@ -71,12 +65,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/business-agent
           command: deploy --env preview
-          secrets: |
-            GOOGLE_CLIENT_SECRET
-            FACEBOOK_APP_SECRET
-        env:
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
         continue-on-error: true
 
       # Deploy analyzer preview
@@ -107,14 +95,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/facebook-worker
           command: deploy --env preview
-          secrets: |
-            FB_EMAIL
-            FB_PASSWORD
-            FACEBOOK_APP_SECRET
-        env:
-          FB_EMAIL: ${{ secrets.FB_EMAIL }}
-          FB_PASSWORD: ${{ secrets.FB_PASSWORD }}
-          FACEBOOK_APP_SECRET: ${{ secrets.FACEBOOK_APP_SECRET }}
         continue-on-error: true
 
       # Comment on PR with preview URLs
