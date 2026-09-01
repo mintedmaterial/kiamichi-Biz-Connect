@@ -1571,9 +1571,9 @@ async function enrichAllBusinesses(env: any) {
   const staleTime = Math.floor(Date.now() / 1000) - 86400;
   const businesses = await db
     .prepare(`
-      SELECT id, name, facebook_url
+      SELECT id, name, facebook_url, facebook_page_id
       FROM businesses
-      WHERE facebook_url IS NOT NULL
+      WHERE (facebook_page_id IS NOT NULL OR facebook_url IS NOT NULL)
         AND is_active = 1
         AND (last_facebook_enrichment IS NULL OR last_facebook_enrichment < ?)
       LIMIT 50
@@ -1615,15 +1615,22 @@ async function enrichSingleBusiness(env: any, businessId: number) {
     .bind(businessId)
     .first();
 
-  if (!biz || !biz.facebook_url) {
-    throw new Error('Business not found or no Facebook URL');
+  if (!biz) {
+    throw new Error('Business not found');
   }
 
   try {
-    // Extract page ID
-    const pageId = await extractPageIdFromUrl(biz.facebook_url, token);
+    // Prefer the immutable Page ID captured from the managed-Page OAuth flow.
+    // URL extraction remains only as a compatibility path for legacy listings.
+    const storedPageId = typeof biz.facebook_page_id === 'string'
+      && /^\d+$/.test(biz.facebook_page_id)
+      ? biz.facebook_page_id
+      : null;
+    const pageId = storedPageId || (biz.facebook_url
+      ? await extractPageIdFromUrl(biz.facebook_url, token)
+      : null);
     if (!pageId) {
-      throw new Error('Could not extract page ID');
+      throw new Error('Business has no valid Facebook Page identity');
     }
 
     // Fetch page info and posts

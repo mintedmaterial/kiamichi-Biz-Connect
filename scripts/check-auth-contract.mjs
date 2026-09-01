@@ -11,6 +11,7 @@ const middleware = read('src/auth/middleware.ts');
 const facebook = read('src/facebook-oauth.ts');
 const businessAgent = read('workers/business-agent/src/server.ts');
 const database = read('src/database.ts');
+const facebookWorker = read('workers/facebook-worker/src/index.ts');
 
 function requireText(source, text, message) {
   if (!source.includes(text)) throw new Error(message);
@@ -54,5 +55,8 @@ rejectText(businessAgent, 'https://kiamichibizconnect.com/auth/google/login', 'B
 requireText(admin, "^\\d+$/.test(extra.facebook_connection.page_id)", 'Approval must validate the Facebook Page ID before persistence');
 requireText(admin, 'facebook_page_id: verifiedFacebookPageId', 'Approval must preserve the validated Facebook Page ID');
 requireText(database, 'business.facebook_page_id ?? null', 'Business creation must persist the validated Facebook Page ID');
+requireText(facebookWorker, "^\\d+$/.test(biz.facebook_page_id)", 'Facebook automation must validate the persisted Page ID');
+requireText(facebookWorker, 'const pageId = storedPageId || (biz.facebook_url', 'Facebook automation must prefer the persisted Page ID with a legacy URL fallback');
+requireText(facebookWorker, 'facebook_page_id IS NOT NULL OR facebook_url IS NOT NULL', 'Facebook enrichment must include listings with a persisted Page ID and no URL');
 
 console.log('Admin GitHub and business Facebook auth contracts verified.');

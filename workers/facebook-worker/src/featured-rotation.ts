@@ -86,7 +86,7 @@ export async function rotateFeaturedBusinesses(
         CASE WHEN ftm.tier_level = 'premium' THEN 0 
              WHEN ftm.tier_level = 'basic' THEN 1 
              ELSE 2 END,
-        CASE WHEN b.facebook_url IS NOT NULL THEN 0 ELSE 1 END,
+        CASE WHEN b.facebook_page_id IS NOT NULL OR b.facebook_url IS NOT NULL THEN 0 ELSE 1 END,
         CASE WHEN b.is_verified = 1 THEN 0 ELSE 1 END,
         b.google_rating DESC,
         RANDOM()
@@ -326,7 +326,7 @@ export async function getFeaturedTierMembers(env: any): Promise<any[]> {
       ftm.tier_level,
       ftm.tier_start,
       ftm.tier_end,
-      CASE WHEN b.facebook_url IS NOT NULL THEN 1 ELSE 0 END as has_facebook
+      CASE WHEN b.facebook_page_id IS NOT NULL OR b.facebook_url IS NOT NULL THEN 1 ELSE 0 END as has_facebook
     FROM featured_tier_members ftm
     INNER JOIN businesses b ON ftm.business_id = b.id
     WHERE ftm.tier_end IS NULL OR ftm.tier_end > ?
