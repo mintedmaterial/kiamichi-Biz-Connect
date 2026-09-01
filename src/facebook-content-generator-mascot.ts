@@ -78,7 +78,7 @@ Remember: You're NOT selling, you're SHARING something cool you found. Sound hum
       // For business spotlights, integrate Bigfoot mascot
       if (contentType === 'business_spotlight') {
         const includeMascot = shouldIncludeMascot('business_spotlight', business.id);
-        
+
         if (includeMascot) {
           try {
             console.log(`Generating business spotlight with mascot for: ${business.name}`);
@@ -146,7 +146,7 @@ ${ratingText}
 
 Write like you're genuinely excited to tell people about this place. Start with something that grabbed your attention about them. Keep it real and conversational.
 
-${business.facebook_url
+${business.facebook_page_id || business.facebook_url
   ? `IMPORTANT: Tag the business using @${business.name.replace(/\s+/g, '')} (remove ALL spaces!)`
   : `Mention ${business.name} naturally but DON'T use @tag since they don't have a Facebook page`
 }
@@ -198,32 +198,32 @@ Browse the full directory at the link below.`;
  */
 async function generateFallbackContent(context: ContentGenerationContext): Promise<{ message: string; link: string; imageUrl?: string }> {
   const { contentType, business, blogPost, category } = context;
-  
+
   let message = '';
   let link = '';
   let imageUrl: string | undefined;
-  
+
   switch (contentType) {
     case 'business_spotlight':
       if (!business) throw new Error('Business required');
-      
+
       message = `🌟 Just discovered ${business.name} in ${business.city}! ${business.description || 'Amazing local business'} Check them out!`;
       link = `https://kiamichibizconnect.com/business/${business.slug}`;
       imageUrl = business.image_url || undefined;
       break;
-      
+
     case 'blog_share':
       if (!blogPost) throw new Error('Blog post required');
       message = `📰 New blog post: ${blogPost.title}`;
       link = `https://kiamichibizconnect.com/blog/${blogPost.slug}`;
       imageUrl = blogPost.featured_image || undefined;
       break;
-      
+
     default:
       message = 'Check out this local business!';
       link = 'https://kiamichibizconnect.com';
   }
-  
+
   return { message, link, imageUrl };
 }
 
@@ -235,7 +235,7 @@ async function generateBusinessImage(env: Env, business: any, message: string): 
   try {
     const businessType = (business.description || '').toLowerCase();
     let sceneDescription = '';
-    
+
     if (businessType.includes('electric') || businessType.includes('electrician')) {
       sceneDescription = 'Professional electrician working on an electrical panel in a modern home, wearing safety gear, organized tools visible, bright workshop lighting, focusing on the electrical work';
     } else if (businessType.includes('plumb')) {
@@ -249,23 +249,23 @@ async function generateBusinessImage(env: Env, business: any, message: string): 
     } else {
       sceneDescription = `Professional ${business.name} business setting, ${business.city}, welcoming atmosphere, quality service, local business`;
     }
-    
+
     const imageResponse = await env.AI.run('@cf/black-forest-labs/flux-1-dev', {
       prompt: sceneDescription,
       guidance: 7.5,
       steps: 20
     });
-    
+
     if (imageResponse && imageResponse.image) {
       const imageBuffer = Buffer.from(imageResponse.image, 'base64');
       const imageKey = `social/ai-generated-${Date.now()}-${business.id}.jpg`;
-      
+
       await env.IMAGES.put(imageKey, imageBuffer, {
         httpMetadata: {
           contentType: 'image/jpeg',
         },
       });
-      
+
       const imageUrl = `${env.SITE_URL}/images/${imageKey}`;
       console.log(`Generated AI image for ${business.name}: ${imageKey}`);
       return imageUrl;
@@ -273,6 +273,6 @@ async function generateBusinessImage(env: Env, business: any, message: string): 
   } catch (error) {
     console.error('AI image generation failed:', error);
   }
-  
+
   return undefined;
 }

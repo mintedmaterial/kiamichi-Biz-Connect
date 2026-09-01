@@ -13,6 +13,8 @@ const businessAgent = read('workers/business-agent/src/server.ts');
 const database = read('src/database.ts');
 const facebookWorker = read('workers/facebook-worker/src/index.ts');
 const vipPosts = read('workers/facebook-worker/src/vip-posts.ts');
+const facebookScheduler = read('src/facebook-scheduler.ts');
+const facebookMascotGenerator = read('src/facebook-content-generator-mascot.ts');
 
 function requireText(source, text, message) {
   if (!source.includes(text)) throw new Error(message);
@@ -61,5 +63,7 @@ requireText(facebookWorker, 'const pageId = storedPageId || (biz.facebook_url', 
 requireText(facebookWorker, 'facebook_page_id IS NOT NULL OR facebook_url IS NOT NULL', 'Facebook enrichment must include listings with a persisted Page ID and no URL');
 requireText(facebookWorker, 'Boolean(business.facebook_page_id || business.facebook_url)', 'Facebook test posts must recognize persisted Page identities');
 requireText(vipPosts, 'business.facebook_page_id || business.facebook_url', 'VIP posts must recognize persisted Page identities');
+requireText(facebookScheduler, 'business.facebook_page_id || business.facebook_url', 'Facebook queue scheduling must recognize persisted Page identities');
+requireText(facebookMascotGenerator, 'business.facebook_page_id || business.facebook_url', 'Facebook mascot content must recognize persisted Page identities');
 
 console.log('Admin GitHub and business Facebook auth contracts verified.');
