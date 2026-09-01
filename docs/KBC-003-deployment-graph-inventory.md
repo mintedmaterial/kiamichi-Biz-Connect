@@ -175,8 +175,8 @@ No mutating endpoint was exercised.
 
 ## Observability and risk boundaries
 
-- Persisted invocation logs are enabled for all six KBC Workers.
-- Top-level observability is enabled for Business Agent, discovery, and verifier; it is disabled for main, analyzer, and Facebook even though invocation-log persistence is on.
+- Active Cloudflare settings readback reported `observability.logs.persist=true` and invocation logs enabled for all six KBC Workers. This is live-state evidence, not a claim that every tracked Wrangler file declares the setting.
+- Top-level observability is enabled for Business Agent, discovery, and verifier; it is disabled for main, analyzer, and Facebook even though their active settings still report persisted invocation logs. Several tracked Wrangler files omit this live setting, so future releases must read it back rather than infer it from source.
 - Discovery has bounded daily count, queue retry count, DLQ, and disabled-by-default execution. Its Workflow call cannot succeed until the shared verifier secret exists on both sides.
 - RAG Worker has a 15-request-per-60-second rate limiter, but the backing AI Search index is paused.
 - Facebook has three live cron groups and credentials installed. Health does not prove posting safety; KBC-406 retains the explicit human approval requirement for external publication.
