@@ -15,6 +15,7 @@ const facebookWorker = read('workers/facebook-worker/src/index.ts');
 const vipPosts = read('workers/facebook-worker/src/vip-posts.ts');
 const facebookScheduler = read('src/facebook-scheduler.ts');
 const facebookMascotGenerator = read('src/facebook-content-generator-mascot.ts');
+const utils = read('src/utils.ts');
 
 function requireText(source, text, message) {
   if (!source.includes(text)) throw new Error(message);
@@ -55,15 +56,19 @@ rejectText(index, "formData.get('is_verified')", 'Server must not trust public v
 rejectText(index, '[name="facebook_rating"]', 'Facebook auto-fill must not write to removed rating controls');
 requireText(businessAgent, 'https://kiamichibizconnect.com/auth/github/login', 'Business Agent must use the live GitHub admin login route');
 rejectText(businessAgent, 'https://kiamichibizconnect.com/auth/google/login', 'Business Agent must not redirect to the disabled Google route');
-requireText(admin, "^\\d+$/.test(extra.facebook_connection.page_id)", 'Approval must validate the Facebook Page ID before persistence');
+requireText(utils, "typeof value === 'string' && /^\\d+$/.test(value)", 'Facebook Page IDs must use one shared strict numeric validator');
+requireText(admin, "extra.facebook_connection?.source === 'meta_oauth_managed_page'", 'Approval must enforce managed-Page provenance');
+requireText(admin, 'isValidFacebookPageId(extra.facebook_connection.page_id)', 'Approval must validate the Facebook Page ID before persistence');
 requireText(admin, 'facebook_page_id: verifiedFacebookPageId', 'Approval must preserve the validated Facebook Page ID');
 requireText(database, 'business.facebook_page_id ?? null', 'Business creation must persist the validated Facebook Page ID');
-requireText(facebookWorker, "^\\d+$/.test(biz.facebook_page_id)", 'Facebook automation must validate the persisted Page ID');
+requireText(database, "keys.push('facebook_page_id = ?')", 'Business updates must preserve or clear the Facebook Page ID');
+requireText(index, 'getFacebookPageUrl(business.facebook_page_id, business.facebook_url)', 'Public listings must render ID-only Facebook identities');
+requireText(facebookWorker, 'isValidFacebookPageId(biz.facebook_page_id)', 'Facebook automation must validate the persisted Page ID');
 requireText(facebookWorker, 'const pageId = storedPageId || (biz.facebook_url', 'Facebook automation must prefer the persisted Page ID with a legacy URL fallback');
-requireText(facebookWorker, 'facebook_page_id IS NOT NULL OR facebook_url IS NOT NULL', 'Facebook enrichment must include listings with a persisted Page ID and no URL');
-requireText(facebookWorker, 'Boolean(business.facebook_page_id || business.facebook_url)', 'Facebook test posts must recognize persisted Page identities');
-requireText(vipPosts, 'business.facebook_page_id || business.facebook_url', 'VIP posts must recognize persisted Page identities');
-requireText(facebookScheduler, 'business.facebook_page_id || business.facebook_url', 'Facebook queue scheduling must recognize persisted Page identities');
-requireText(facebookMascotGenerator, 'business.facebook_page_id || business.facebook_url', 'Facebook mascot content must recognize persisted Page identities');
+requireText(facebookWorker, "facebook_page_id NOT GLOB '*[^0-9]*'", 'Facebook enrichment selection must reject malformed persisted Page IDs');
+requireText(facebookWorker, 'hasFacebookIdentity(business.facebook_page_id, business.facebook_url)', 'Facebook test posts must recognize only valid persisted Page identities');
+requireText(vipPosts, 'hasFacebookIdentity(business.facebook_page_id, business.facebook_url)', 'VIP posts must recognize only valid persisted Page identities');
+requireText(facebookScheduler, 'hasFacebookIdentity(business.facebook_page_id, business.facebook_url)', 'Facebook queue scheduling must recognize only valid persisted Page identities');
+requireText(facebookMascotGenerator, 'hasFacebookIdentity(business.facebook_page_id, business.facebook_url)', 'Facebook mascot content must recognize only valid persisted Page identities');
 
 console.log('Admin GitHub and business Facebook auth contracts verified.');

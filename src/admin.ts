@@ -3,6 +3,7 @@ import { DatabaseService } from './database';
 import { runBlogWorker, BlogGenerationRequest } from './workers/blogWorker';
 import { verifyAdminSession } from './auth/google';
 import { AdminSession } from './auth/types';
+import { isValidFacebookPageId } from './utils';
 
 /**
  * Admin Helper Functions
@@ -953,8 +954,8 @@ async function approveSubmission(id: string, db: DatabaseService): Promise<Respo
     // Parse any extra submission_data (we stored the full submission JSON)
     let extra: any = {};
     try { extra = submission.submission_data ? JSON.parse(String(submission.submission_data)) : {}; } catch (e) { extra = {}; }
-    const verifiedFacebookPageId = typeof extra.facebook_connection?.page_id === 'string'
-      && /^\d+$/.test(extra.facebook_connection.page_id)
+    const verifiedFacebookPageId = extra.facebook_connection?.source === 'meta_oauth_managed_page'
+      && isValidFacebookPageId(extra.facebook_connection.page_id)
       ? extra.facebook_connection.page_id
       : undefined;
 

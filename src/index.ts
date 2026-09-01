@@ -24,6 +24,7 @@ import {
   isSquareCheckoutConfigured,
   saveSponsoredPlacementCreative
 } from './sponsored-placements';
+import { getFacebookPageUrl } from './utils';
 
 export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -1236,6 +1237,7 @@ async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): 
     return new Response('Business not found', { status: 404 });
   }
 
+  const facebookPageUrl = getFacebookPageUrl(business.facebook_page_id, business.facebook_url);
   const content = `
     <div class="container mx-auto px-4 py-8">
       <div class="bg-white rounded-xl shadow-xl overflow-hidden">
@@ -1332,7 +1334,7 @@ async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): 
                 </iframe>
               </div>
 
-              ${business.facebook_url || business.google_business_url ? `
+              ${facebookPageUrl || business.google_business_url ? `
                 <h2 class="text-2xl font-bold mt-6 mb-4">Find Us Online</h2>
                 <div class="flex flex-col gap-2">
                   ${business.google_business_url ? `
@@ -1340,8 +1342,8 @@ async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): 
                       <span>📍</span> View on Google Maps →
                     </a>
                   ` : ''}
-                  ${business.facebook_url ? `
-                    <a href="${business.facebook_url}" target="_blank" class="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold">
+                  ${facebookPageUrl ? `
+                    <a href="${facebookPageUrl}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-semibold">
                       <span>👥</span> Facebook Page →
                     </a>
                   ` : ''}
@@ -1535,7 +1537,7 @@ async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): 
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
     name: business.name,
-    image: business.image_url || (business.facebook_url ? (business as any).facebook_image_url : undefined),
+    image: business.image_url || (facebookPageUrl ? (business as Business & { facebook_image_url?: string }).facebook_image_url : undefined),
     telephone: business.phone || undefined,
     email: business.email || undefined,
     address: {
@@ -1546,7 +1548,7 @@ async function handleBusinessPage(slug: string, db: DatabaseService, env: Env): 
       postalCode: business.zip_code || undefined
     },
     url: business.website || undefined,
-    sameAs: [business.facebook_url || '', business.google_business_url || ''].filter(Boolean),
+    sameAs: [facebookPageUrl || '', business.google_business_url || ''].filter(Boolean),
     aggregateRating: business.google_review_count ? {
       "@type": "AggregateRating",
       ratingValue: business.google_rating?.toFixed(1),

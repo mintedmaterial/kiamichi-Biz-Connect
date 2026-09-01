@@ -10,6 +10,7 @@
  */
 
 import { generateBusinessImageWithMascot, shouldIncludeMascot } from '../../../src/bigfoot-mascot';
+import { hasFacebookIdentity } from '../../../src/utils';
 import { postToPage } from './fb-official-api';
 
 export interface VIPBusiness {
@@ -174,7 +175,7 @@ export async function generateVIPPost(
     const systemPrompt = `You are a friendly local community member in Southeast Oklahoma who loves supporting local businesses.
 Write warm, genuine social media posts. NO hashtags. Sound like a real person, not a marketer.
 Keep posts 80-120 words. Use casual language and local flavor.
-${business.facebook_page_id || business.facebook_url
+${hasFacebookIdentity(business.facebook_page_id, business.facebook_url)
   ? `IMPORTANT: Tag the business using @${business.name.replace(/\s+/g, '')} (remove ALL spaces from name!)`
   : `Mention ${business.name} naturally but don't use @tag.`
 }`;

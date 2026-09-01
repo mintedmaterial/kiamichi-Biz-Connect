@@ -39,7 +39,7 @@ The browser may edit normal listing fields after auto-fill. Trust-sensitive prov
 - The connection identifier is a `Secure`, `HttpOnly`, `SameSite=Lax`, host-only cookie with a one-hour maximum age.
 - A successful submission deletes the short-lived KV session and expires the cookie.
 - The pending submission records `facebook_connection.source = meta_oauth_managed_page`, Page ID, Page name, and connection time.
-- Approval copies that server-validated Page ID into `businesses.facebook_page_id`; downstream Facebook automation treats that column—not an editable URL—as the Page identity. Legacy rows without a valid stored Page ID may fall back to URL discovery, and successful enrichment backfills the authoritative column.
+- Approval requires `facebook_connection.source = meta_oauth_managed_page` and copies only a numeric server-validated Page ID into `businesses.facebook_page_id`. Downstream presentation and Facebook automation prefer that immutable identity, reject malformed stored IDs, and use a canonical Facebook Page URL for ID-only listings. Legacy rows without a valid stored Page ID may fall back to a nonempty URL, and successful enrichment backfills the authoritative column.
 - Public clients cannot submit `is_verified`, Google rating, Google review count, Facebook rating, or Facebook review count as authoritative values. Facebook rating metadata is accepted only from the selected server-validated Page response.
 - Approval remains a human admin action. No external publication occurs from this flow.
 
